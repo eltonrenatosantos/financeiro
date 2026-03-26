@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { CreateConversationTurnDto } from "./dto/create-conversation-turn.dto";
 import { ParserService } from "../parser/parser.service";
+import { classifyByTaxonomy } from "../parser/domain-taxonomy";
 import { SupabaseService } from "../integrations/supabase/supabase.service";
 import {
   ConversationPersistenceResult,
@@ -160,7 +161,35 @@ export class ConversationService {
 
   private isDeleteAllCommitmentsCommand(input: string) {
     const normalized = this.normalizeText(input);
-    return normalized.includes("apague todos os meus gastos fixos");
+    const hasDeleteVerb =
+      normalized.includes("apagar") ||
+      normalized.includes("apague") ||
+      normalized.includes("apaga") ||
+      normalized.includes("deleta") ||
+      normalized.includes("deletar") ||
+      normalized.includes("delete") ||
+      normalized.includes("remove") ||
+      normalized.includes("remova") ||
+      normalized.includes("remover") ||
+      normalized.includes("limpa") ||
+      normalized.includes("limpe") ||
+      normalized.includes("limpar") ||
+      normalized.includes("zera") ||
+      normalized.includes("zerar");
+    const hasWholeScope =
+      normalized.includes("tudo") ||
+      normalized.includes("todo") ||
+      normalized.includes("todos") ||
+      normalized.includes("todas") ||
+      normalized.includes("meus");
+    const hasCommitmentScope =
+      normalized.includes("gastos fixos") ||
+      normalized.includes("gasto fixo") ||
+      normalized.includes("fixos") ||
+      normalized.includes("compromissos") ||
+      normalized.includes("compromisso");
+
+    return hasDeleteVerb && hasCommitmentScope && (hasWholeScope || normalized.includes("zera"));
   }
 
   private isDeleteAllTransactionsCommand(input: string) {
@@ -180,12 +209,17 @@ export class ConversationService {
       normalized.includes("remover") ||
       normalized.includes("limpa") ||
       normalized.includes("limpe") ||
-      normalized.includes("limpar");
+      normalized.includes("limpar") ||
+      normalized.includes("zera") ||
+      normalized.includes("zerar") ||
+      normalized.includes("esvazia") ||
+      normalized.includes("esvaziar");
     const hasWholeScope =
       normalized.includes("tudo") ||
       normalized.includes("todo") ||
       normalized.includes("todos") ||
-      normalized.includes("todas");
+      normalized.includes("todas") ||
+      normalized.includes("zera");
     const hasExtractScope =
       normalized.includes("extrato") ||
       normalized.includes("itens do extrato") ||
@@ -755,6 +789,12 @@ export class ConversationService {
       input.includes("substituir") ||
       input.includes("atualiza") ||
       input.includes("atualizar") ||
+      input.includes("muda") ||
+      input.includes("mudar") ||
+      input.includes("altera") ||
+      input.includes("alterar") ||
+      input.includes("troca") ||
+      input.includes("trocar") ||
       input.includes("corrige") ||
       input.includes("corrigir")
     );
@@ -782,9 +822,33 @@ export class ConversationService {
       input.includes("paguei") ||
       input.includes("pagar") ||
       input.includes("pago") ||
+      input.includes("paga") ||
+      input.includes("quitei") ||
+      input.includes("quitar") ||
+      input.includes("quitado") ||
+      input.includes("quitada") ||
+      input.includes("liquidei") ||
+      input.includes("foi paga") ||
+      input.includes("foi pago") ||
+      input.includes("ja paguei") ||
+      input.includes("já paguei") ||
+      input.includes("ja quitei") ||
+      input.includes("já quitei") ||
       input.includes("desse mes") ||
       input.includes("deste mes")
     );
+  }
+
+  private resolveCommitmentLookupDescription(description: string) {
+    const normalizedDescription = this.normalizeText(description);
+    const classified = classifyByTaxonomy(
+      "commitment",
+      "expense",
+      normalizedDescription,
+      normalizedDescription,
+    );
+
+    return this.normalizeText(classified.description ?? normalizedDescription);
   }
 
   private buildCommitmentDateRange(
@@ -987,7 +1051,9 @@ export class ConversationService {
         parsed.dueDay !== null &&
         parsed.amount === null
       ) {
-        const normalizedParsedDescription = this.normalizeText(parsed.description);
+        const normalizedParsedDescription = this.resolveCommitmentLookupDescription(
+          parsed.description,
+        );
         const { data: existingCommitments } = await admin
           .from("commitments")
           .select("id, title")
@@ -1050,7 +1116,9 @@ export class ConversationService {
       }
 
       if (this.hasExpenseSettlementSignal(normalizedRawText)) {
-        const normalizedParsedDescription = this.normalizeText(parsed.description);
+        const normalizedParsedDescription = this.resolveCommitmentLookupDescription(
+          parsed.description,
+        );
         const { data: existingCommitments } = await admin
           .from("commitments")
           .select("id, title, amount")

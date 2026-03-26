@@ -66,6 +66,18 @@ export const COMMITMENT_DOMAIN_RULES: DomainRule[] = [
     summaryKind: "income",
   },
   {
+    tokens: ["aluguel carro", "aluguel do carro", "locacao de carro", "locação de carro"],
+    description: "aluguel carro",
+    category: "mobilidade fixa",
+    summaryKind: "fixed",
+  },
+  {
+    tokens: ["aluguel roupa", "aluguel de roupa", "aluguel vestido", "aluguel de vestido", "aluguel terno", "aluguel de terno"],
+    description: "aluguel roupa",
+    category: "servicos fixos",
+    summaryKind: "fixed",
+  },
+  {
     tokens: ["mercado", "supermercado", "padaria", "feira", "sacolao"],
     description: "compras do mes",
     category: "compras fixas",
@@ -75,18 +87,6 @@ export const COMMITMENT_DOMAIN_RULES: DomainRule[] = [
     tokens: ["aluguel", "apartamento", "imovel", "casa"],
     description: "moradia",
     category: "moradia fixa",
-    summaryKind: "fixed",
-  },
-  {
-    tokens: ["aluguel", "carro", "veiculo"],
-    description: "aluguel carro",
-    category: "mobilidade fixa",
-    summaryKind: "fixed",
-  },
-  {
-    tokens: ["aluguel", "roupa", "vestido", "terno"],
-    description: "aluguel roupa",
-    category: "servicos fixos",
     summaryKind: "fixed",
   },
   {
@@ -174,7 +174,7 @@ export const COMMITMENT_DOMAIN_RULES: DomainRule[] = [
     summaryKind: "fixed",
   },
   {
-    tokens: ["emprestimo", "empréstimo", "financiamento", "parcela"],
+    tokens: ["emprestimo", "empréstimo", "financiamento", "parcela", "prestacao", "prestação", "boleto", "divida", "dívida"],
     description: "emprestimo",
     category: "financeiro fixo",
     summaryKind: "fixed",
@@ -189,7 +189,7 @@ export const TRANSACTION_DOMAIN_RULES: DomainRule[] = [
     summaryKind: "variable",
   },
   {
-    tokens: ["almoco", "jantar", "restaurante", "lanche", "cafe"],
+    tokens: ["almoco", "jantar", "restaurante", "lanche", "cafe", "pao", "pão"],
     description: "",
     category: "alimentacao",
     summaryKind: "variable",
@@ -280,6 +280,22 @@ export const TRANSACTION_DOMAIN_RULES: DomainRule[] = [
   },
 ];
 
+export function hasTransactionExpenseContext(normalizedText: string) {
+  return TRANSACTION_DOMAIN_RULES.some(
+    (rule) =>
+      rule.summaryKind === "variable" &&
+      rule.tokens.some((token) => hasWholeTokenOrPhrase(normalizedText, token)),
+  );
+}
+
+export function hasTransactionIncomeContext(normalizedText: string) {
+  return TRANSACTION_DOMAIN_RULES.some(
+    (rule) =>
+      rule.summaryKind === "income" &&
+      rule.tokens.some((token) => hasWholeTokenOrPhrase(normalizedText, token)),
+  );
+}
+
 export function classifyByTaxonomy(
   intent: ParsedConversationResult["intent"],
   direction: ParsedConversationResult["direction"],
@@ -327,8 +343,8 @@ export function classifyByTaxonomy(
 
     return {
       description,
-      category: null,
-      summaryKind: "variable",
+      category: direction === "income" ? "entrada" : null,
+      summaryKind: direction === "income" ? "income" : "variable",
     };
   }
 

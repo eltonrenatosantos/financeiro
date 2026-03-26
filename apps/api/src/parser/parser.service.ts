@@ -1,7 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { ParseInputDto } from "./dto/parse-input.dto";
 import { ParsedConversationResult, ParsedEntity } from "./parser.types";
-import { classifyByTaxonomy } from "./domain-taxonomy";
+import {
+  classifyByTaxonomy,
+  hasTransactionExpenseContext,
+  hasTransactionIncomeContext,
+} from "./domain-taxonomy";
 
 const NUMBER_PATTERN =
   "(?:\\d+(?:[.\\s]\\d{3})*(?:,\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?)";
@@ -39,6 +43,8 @@ export class ParserService {
       : this.extractAmount(normalizedText, hasRecurringSignal ? dueDay : null);
     const timeReference = this.extractTimeReference(normalizedText);
     const counterparty = this.extractCounterparty(rawText);
+    const hasExpenseContext = amount !== null && hasTransactionExpenseContext(normalizedText);
+    const hasIncomeContext = amount !== null && hasTransactionIncomeContext(normalizedText);
 
     let intent: ParsedConversationResult["intent"] = "unknown";
     let direction: ParsedConversationResult["direction"] = null;
@@ -50,10 +56,16 @@ export class ParserService {
       intent = "commitment";
       recurrence = this.detectRecurrence(normalizedText, dueDay);
       direction = this.hasFixedIncomeSignal(normalizedText) ? "income" : "expense";
-    } else if (this.hasExpenseSignal(normalizedText)) {
+    } else if (
+      this.hasExpenseSignal(normalizedText) ||
+      (!this.hasIncomeSignal(normalizedText) && hasExpenseContext)
+    ) {
       intent = "transaction";
       direction = "expense";
-    } else if (this.hasIncomeSignal(normalizedText)) {
+    } else if (
+      this.hasIncomeSignal(normalizedText) ||
+      (!this.hasExpenseSignal(normalizedText) && hasIncomeContext)
+    ) {
       intent = "transaction";
       direction = "income";
     }
@@ -202,6 +214,15 @@ export class ParserService {
       "desembolsei",
       "acabei de gastar",
       "acabei de pagar",
+      "acabei gastando",
+      "pix de",
+      "quitei",
+      "quitar",
+      "quitado",
+      "quitada",
+      "liquidei",
+      "foi paga",
+      "foi pago",
     ].some((token) => input.includes(token));
   }
 
@@ -218,6 +239,12 @@ export class ParserService {
       "acabou de cair",
       "entrada",
       "pix recebido",
+      "me pagou",
+      "me pagaram",
+      "pagaram",
+      "depositaram",
+      "depositou",
+      "pingou",
     ].some((token) => input.includes(token));
   }
 
@@ -241,11 +268,23 @@ export class ParserService {
       input.includes("tim") ||
       input.includes("escola") ||
       input.includes("seguro") ||
+      input.includes("agua") ||
+      input.includes("água") ||
+      input.includes("sabesp") ||
+      input.includes("luz") ||
+      input.includes("energia") ||
+      input.includes("enel") ||
+      input.includes("cemig") ||
       input.includes("condominio") ||
       input.includes("financiamento") ||
       input.includes("emprestimo") ||
       input.includes("emprestimo") ||
+      input.includes("divida") ||
+      input.includes("dívida") ||
+      input.includes("boleto") ||
       input.includes("parcela") ||
+      input.includes("prestacao") ||
+      input.includes("prestação") ||
       input.includes("cartao") ||
       input.includes("cartão") ||
       input.includes("plano de saude") ||
@@ -264,7 +303,12 @@ export class ParserService {
       input.includes("todo mes") ||
       input.includes("todo mes") ||
       input.includes("por mes") ||
+      input.includes("mes a mes") ||
+      input.includes("mês a mês") ||
       input.includes("vencimento") ||
+      input.includes("vence") ||
+      input.includes("vencer") ||
+      input.includes("vencendo") ||
       input.includes("mensal") ||
       input.includes("recorrente") ||
       hasFixedKeyword
@@ -280,7 +324,9 @@ export class ParserService {
       input.includes("corrige") ||
       input.includes("corrigir") ||
       input.includes("na verdade") ||
-      input.includes("o valor certo")
+      input.includes("o valor certo") ||
+      input.includes("o correto") ||
+      input.includes("o valor correto")
     );
   }
 
@@ -291,6 +337,10 @@ export class ParserService {
 
     if (input.includes("todo dia")) {
       return "daily";
+    }
+
+    if (input.includes("mes a mes") || input.includes("mês a mês")) {
+      return "monthly";
     }
 
     return "monthly";
@@ -416,6 +466,16 @@ export class ParserService {
         ),
         groupIndex: 1,
       },
+      {
+        pattern: new RegExp(
+          `o valor correto(?:\\s+e|\\s+era)?\\s+(?:r\\$\\s*)?(${NUMBER_PATTERN})`,
+        ),
+        groupIndex: 1,
+      },
+      {
+        pattern: new RegExp(`o correto(?:\\s+e|\\s+era)?\\s+(?:r\\$\\s*)?(${NUMBER_PATTERN})`),
+        groupIndex: 1,
+      },
     ];
 
     for (const { pattern, groupIndex } of explicitPatterns) {
@@ -454,7 +514,9 @@ export class ParserService {
   }
 
   private extractDueDay(input: string): number | null {
-    const match = input.match(/(?:todo dia|dia)\s+(\d{1,2})\b/);
+    const match = input.match(
+      /(?:todo dia|vence(?:\s+no)?(?:\s+dia)?|vencimento(?:\s+no)?(?:\s+dia)?|dia)\s+(\d{1,2})\b/,
+    );
 
     if (!match) {
       return null;
@@ -502,6 +564,8 @@ export class ParserService {
       /\b(hoje|ontem|amanha|agora)\b/g,
       /\bacabei de\b/g,
       /\bacabou de\b/g,
+      /\bja\b/g,
+      /\bjá\b/g,
       /\bna verdade\b/g,
       /\beu\b/g,
       /\bnao foi\b/g,
@@ -511,6 +575,8 @@ export class ParserService {
       /\bcorrige\b/g,
       /\bcorrigir\b/g,
       /\bo valor certo\b/g,
+      /\bo valor correto\b/g,
+      /\bo correto\b/g,
       /\bfoi\b/g,
       /\btem um\b/g,
       /\btenho um\b/g,
@@ -530,9 +596,14 @@ export class ParserService {
       /\bpor mes\b/g,
       /\bvencimento\b/g,
       /\b(todo dia|todo mes|mensal|recorrente)\b/g,
+      /\b(vence|vencer|vencendo)\b/g,
       /\bdia\s+\d{1,2}\b/g,
-      /\b(gastei|gastar|gastando|gasto|paguei|pagar|pagando|recebi|receber|recebendo|ganhei|ganhar|comprei|comprar|desembolsei|entrou|entrar|caiu|cair)\b/g,
+      /\b(gastei|gastar|gastando|gasto|paguei|pagar|pagando|pago|paga|quitei|quitar|quitado|quitada|liquidei|recebi|receber|recebendo|ganhei|ganhar|comprei|comprar|desembolsei|entrou|entrar|caiu|cair)\b/g,
+      /\b(me pagou|me pagaram|pagaram|depositaram|depositou|pingou)\b/g,
       /\br\$\s*/g,
+      /\b(reais|real|conto|contos|pila|pilas|mango|mangos|grana)\b/g,
+      /\bpix\b/g,
+      /\bconta\b/g,
       /\bdo cliente\b/g,
       /\bda cliente\b/g,
       /\bcliente\b/g,
@@ -549,7 +620,7 @@ export class ParserService {
     }
 
     description = description
-      .replace(/\b(no|na|do|da|de|pro|pra|para|com)\b(?=\s)/g, " ")
+      .replace(/\b(no|na|do|da|de|pro|pra|para|com|a|o|as|os)\b(?=\s)/g, " ")
       .replace(/\bapartamento\b/g, "imovel")
       .replace(/\bcasa\b/g, "imovel")
       .replace(/\bfreelancer\b/g, "freelance")
@@ -558,6 +629,34 @@ export class ParserService {
 
     if (!description && normalizedText.includes("escola")) {
       return "escola";
+    }
+
+    if (!description && this.hasIncomeSignal(normalizedText)) {
+      if (normalizedText.includes("freelance") || normalizedText.includes("freela") || normalizedText.includes("freelancer")) {
+        return "freelance";
+      }
+
+      if (
+        normalizedText.includes("prolabore") ||
+        normalizedText.includes("pro labore") ||
+        normalizedText.includes("pro-labore")
+      ) {
+        return "prolabore";
+      }
+
+      if (normalizedText.includes("salario") || normalizedText.includes("salário")) {
+        return "salario";
+      }
+
+      if (normalizedText.includes("pix")) {
+        return "pix recebido";
+      }
+
+      return "entrada";
+    }
+
+    if (description === "e" || description === "era") {
+      return null;
     }
 
     return description || null;
