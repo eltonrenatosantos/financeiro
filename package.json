@@ -1,0 +1,19 @@
+{
+  "name": "financeiro-voice-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.0.0",
+  "workspaces": [
+    "apps/api",
+    "apps/web",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev:api": "pnpm --filter api start:dev",
+    "dev:web": "pnpm --filter web dev",
+    "build:shared": "pnpm --filter @financeiro/shared build",
+    "lint:web": "pnpm --filter web lint",
+    "lint:api": "pnpm --filter api lint"
+  }
+}
+

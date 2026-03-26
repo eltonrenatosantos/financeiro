@@ -1,0 +1,30 @@
+{
+  "name": "Financeiro Voice",
+  "short_name": "FinVoice",
+  "description": "PWA inicial do gestor financeiro com foco principal em voz.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2ede2",
+  "theme_color": "#0f766e",
+  "lang": "pt-BR",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/apple-touch-icon.svg",
+      "sizes": "180x180",
+      "type": "image/svg+xml"
+    }
+  ]
+}
