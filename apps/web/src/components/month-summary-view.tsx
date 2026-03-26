@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { FINANCE_DATA_UPDATED_EVENT } from "./data-sync";
 import {
   formatDateTimeInZone,
   getLocalDayOfMonth,
@@ -142,12 +143,14 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
 
     window.addEventListener("focus", refreshIfVisible);
     document.addEventListener("visibilitychange", refreshIfVisible);
+    window.addEventListener(FINANCE_DATA_UPDATED_EVENT, refreshIfVisible);
     const intervalId = window.setInterval(refreshIfVisible, 15000);
 
     return () => {
       cancelled = true;
       window.removeEventListener("focus", refreshIfVisible);
       document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener(FINANCE_DATA_UPDATED_EVENT, refreshIfVisible);
       window.clearInterval(intervalId);
     };
   }, []);
@@ -263,6 +266,10 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
           <div>
             <p className="eyebrow">Resumo mensal</p>
             <h1>{formatMonthTitle(parsed.year, parsed.month)}</h1>
+            <p className="hero-balance-label">Saldo projetado</p>
+            <strong className="hero-balance-value">
+              {formatCurrency(summaryBalance)}
+            </strong>
           </div>
         </section>
 

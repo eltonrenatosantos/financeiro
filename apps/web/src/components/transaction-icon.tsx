@@ -15,7 +15,7 @@ function iconStrokeProps() {
   return {
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: 1.7,
+    strokeWidth: 1.9,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
   };
@@ -127,9 +127,9 @@ export function TransactionIcon({
     case "shopping":
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7 9h10.5l-1.2 6.2a1.9 1.9 0 0 1-1.9 1.5H9.8a1.9 1.9 0 0 1-1.9-1.5L6.6 5.8H4.5" {...stroke} />
-          <circle cx="10.2" cy="19" r="1.1" fill="currentColor" />
-          <circle cx="16.3" cy="19" r="1.1" fill="currentColor" />
+          <path d="M7.2 9.2h9.9l-1 5.2a2 2 0 0 1-2 1.6H9.6a2 2 0 0 1-2-1.6L6.5 6.1H4.6" {...stroke} />
+          <circle cx="10.1" cy="18.7" r="1" fill="currentColor" />
+          <circle cx="15.9" cy="18.7" r="1" fill="currentColor" />
         </svg>
       );
     case "food":
@@ -162,7 +162,8 @@ export function TransactionIcon({
     case "play":
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m9 7.5 7 4.5-7 4.5Z" {...stroke} />
+          <rect x="5.5" y="6.3" width="13" height="11.4" rx="3" {...stroke} />
+          <path d="m10.3 9.3 4.6 2.7-4.6 2.7Z" {...stroke} />
         </svg>
       );
     case "internet":
@@ -181,8 +182,10 @@ export function TransactionIcon({
     case "finance":
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="4.5" y="6.5" width="15" height="11" rx="2.2" {...stroke} />
-          <circle cx="12" cy="12" r="2.1" {...stroke} />
+          <rect x="4.5" y="6.5" width="15" height="11" rx="2.6" {...stroke} />
+          <path d="M9.2 12h5.6" {...stroke} />
+          <circle cx="8" cy="12" r="0.9" fill="currentColor" />
+          <circle cx="16" cy="12" r="0.9" fill="currentColor" />
         </svg>
       );
     case "income":

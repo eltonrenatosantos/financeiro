@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { FINANCE_DATA_UPDATED_EVENT } from "./data-sync";
 import { getLocalYearMonth, resolveUserTimeZone } from "./date-time";
 
 type TransactionItem = {
@@ -21,13 +22,8 @@ type TransactionsApiResponse = {
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 const monthLabels = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
-function formatProviderLabel(provider: "supabase" | "none") {
-  return provider === "supabase" ? "Conectado" : "Sem conexão";
-}
-
 export function SummaryView() {
   const [items, setItems] = useState<TransactionItem[]>([]);
-  const [provider, setProvider] = useState<"supabase" | "none">("none");
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [timeZone, setTimeZone] = useState("America/Sao_Paulo");
@@ -55,14 +51,12 @@ export function SummaryView() {
         }
 
         setItems(data.items);
-        setProvider(data.provider);
         setErrorMessage(data.reason ?? null);
       } catch {
         if (cancelled) {
           return;
         }
 
-        setProvider("none");
         setErrorMessage("Não consegui carregar o resumo agora.");
       } finally {
         if (!cancelled) {
@@ -81,12 +75,14 @@ export function SummaryView() {
 
     window.addEventListener("focus", refreshIfVisible);
     document.addEventListener("visibilitychange", refreshIfVisible);
+    window.addEventListener(FINANCE_DATA_UPDATED_EVENT, refreshIfVisible);
     const intervalId = window.setInterval(refreshIfVisible, 15000);
 
     return () => {
       cancelled = true;
       window.removeEventListener("focus", refreshIfVisible);
       document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener(FINANCE_DATA_UPDATED_EVENT, refreshIfVisible);
       window.clearInterval(intervalId);
     };
   }, []);
@@ -120,8 +116,8 @@ export function SummaryView() {
           <div>
             <p className="eyebrow">Resumo</p>
             <h1>Escolha o mês.</h1>
+            <p className="hero-balance-label">Visão anual</p>
           </div>
-          <span className="extract-provider">{formatProviderLabel(provider)}</span>
         </section>
 
         {loading ? (

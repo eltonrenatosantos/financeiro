@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { notifyFinanceDataUpdated } from "./data-sync";
 
 type Message = {
   id: string;
@@ -242,6 +243,7 @@ export function VoiceDemo() {
       setStatus("responding");
       setParsedSummary(data.parsed);
       setPersistenceStatus(data.persistence);
+      notifyFinanceDataUpdated();
       await fetchLatestTransactions();
 
       await new Promise((resolve) => window.setTimeout(resolve, 500));
@@ -322,6 +324,12 @@ export function VoiceDemo() {
     <section className="demo-shell">
       <section className="voice-stage voice-stage--hero">
         <div className="voice-center">
+          <span className="voice-particle voice-particle--one" aria-hidden="true" />
+          <span className="voice-particle voice-particle--two" aria-hidden="true" />
+          <span className="voice-particle voice-particle--three" aria-hidden="true" />
+          <span className="voice-particle voice-particle--four" aria-hidden="true" />
+          <span className="voice-particle voice-particle--five" aria-hidden="true" />
+          <span className="voice-particle voice-particle--six" aria-hidden="true" />
           <span className="voice-halo voice-halo--one" aria-hidden="true" />
           <span className="voice-halo voice-halo--two" aria-hidden="true" />
           <button
