@@ -57,7 +57,9 @@ export function ExtractView() {
 
     async function loadExtract() {
       try {
-        const response = await fetch(`${apiBaseUrl}/api/transactions`);
+        const response = await fetch(`${apiBaseUrl}/api/transactions`, {
+          cache: "no-store",
+        });
 
         if (!response.ok) {
           throw new Error(`API retornou status ${response.status}`);

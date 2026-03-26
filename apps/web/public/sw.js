@@ -1,4 +1,4 @@
-const CACHE_NAME = "financeiro-voice-v1";
+const CACHE_NAME = "financeiro-voice-v2";
 const APP_SHELL = ["/", "/manifest.json", "/icons/icon-192.svg", "/icons/icon-512.svg"];
 
 self.addEventListener("install", (event) => {
@@ -23,6 +23,32 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") {
+    return;
+  }
+
+  const requestUrl = new URL(event.request.url);
+  const isSameOrigin = requestUrl.origin === self.location.origin;
+  const isApiRequest = requestUrl.pathname.startsWith("/api/");
+  const isDocumentRequest = event.request.mode === "navigate";
+  const isStaticAsset =
+    requestUrl.pathname.startsWith("/icons/") ||
+    requestUrl.pathname === "/manifest.json" ||
+    requestUrl.pathname.startsWith("/_next/static/");
+
+  if (!isSameOrigin || isApiRequest) {
+    return;
+  }
+
+  if (isDocumentRequest) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => networkResponse)
+        .catch(() => caches.match("/")),
+    );
+    return;
+  }
+
+  if (!isStaticAsset) {
     return;
   }
 

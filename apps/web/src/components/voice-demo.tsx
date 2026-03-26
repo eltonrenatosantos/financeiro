@@ -226,6 +226,7 @@ export function VoiceDemo() {
     try {
       const response = await fetch(`${apiBaseUrl}/api/conversation/turns`, {
         method: "POST",
+        cache: "no-store",
         headers: {
           "Content-Type": "application/json",
         },
@@ -264,7 +265,9 @@ export function VoiceDemo() {
 
   async function fetchLatestTransactions() {
     try {
-      const response = await fetch(`${apiBaseUrl}/api/transactions`);
+      const response = await fetch(`${apiBaseUrl}/api/transactions`, {
+        cache: "no-store",
+      });
 
       if (!response.ok) {
         throw new Error(`API retornou status ${response.status}`);

@@ -93,8 +93,12 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
     async function loadMonth() {
       try {
         const [transactionsResponse, commitmentsResponse] = await Promise.all([
-          fetch(`${apiBaseUrl}/api/transactions`),
-          fetch(`${apiBaseUrl}/api/commitments`),
+          fetch(`${apiBaseUrl}/api/transactions`, {
+            cache: "no-store",
+          }),
+          fetch(`${apiBaseUrl}/api/commitments`, {
+            cache: "no-store",
+          }),
         ]);
 
         if (!transactionsResponse.ok) {
