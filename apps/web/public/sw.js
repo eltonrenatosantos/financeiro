@@ -1,4 +1,4 @@
-const CACHE_NAME = "financeiro-voice-v2";
+const CACHE_NAME = "financeiro-voice-v3";
 const APP_SHELL = ["/", "/manifest.json", "/icons/icon-192.svg", "/icons/icon-512.svg"];
 
 self.addEventListener("install", (event) => {
@@ -72,6 +72,56 @@ self.addEventListener("fetch", (event) => {
           return networkResponse;
         })
         .catch(() => caches.match("/"));
+    }),
+  );
+});
+
+self.addEventListener("push", (event) => {
+  if (!event.data) {
+    return;
+  }
+
+  let payload = {
+    title: "Lembrete financeiro",
+    body: "Você tem um vencimento para acompanhar.",
+    tag: "financeiro-reminder",
+    data: {
+      url: "/summary",
+    },
+  };
+
+  try {
+    payload = { ...payload, ...event.data.json() };
+  } catch (_error) {
+    payload.body = event.data.text();
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      tag: payload.tag,
+      icon: "/icons/icon-192.svg",
+      badge: "/icons/icon-192.svg",
+      data: payload.data,
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  const targetUrl = event.notification.data?.url ?? "/summary";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client) {
+          client.navigate?.(targetUrl);
+          return client.focus();
+        }
+      }
+
+      return self.clients.openWindow(targetUrl);
     }),
   );
 });

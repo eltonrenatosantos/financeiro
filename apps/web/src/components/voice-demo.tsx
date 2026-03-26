@@ -100,6 +100,20 @@ type TransactionsApiResponse = {
 };
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const pushPublicKey = process.env.NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY ?? "";
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let index = 0; index < rawData.length; index += 1) {
+    outputArray[index] = rawData.charCodeAt(index);
+  }
+
+  return outputArray;
+}
 
 function capitalizeFirst(value: string) {
   if (!value) {
@@ -126,6 +140,10 @@ export function VoiceDemo() {
     provider: "supabase" | "none";
     reason?: string;
   } | null>(null);
+  const [notificationsSupported, setNotificationsSupported] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [notificationsBusy, setNotificationsBusy] = useState(false);
+  const [notificationsMessage, setNotificationsMessage] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const pendingTranscriptRef = useRef("");
   const shouldSubmitRef = useRef(false);
@@ -197,6 +215,22 @@ export function VoiceDemo() {
 
   useEffect(() => {
     void fetchLatestTransactions();
+  }, []);
+
+  useEffect(() => {
+    const supported =
+      "serviceWorker" in navigator &&
+      "PushManager" in window &&
+      "Notification" in window &&
+      Boolean(pushPublicKey);
+
+    setNotificationsSupported(supported);
+
+    if (!supported || Notification.permission !== "granted") {
+      return;
+    }
+
+    void syncPushSubscription();
   }, []);
 
   async function runConversation(
@@ -289,6 +323,103 @@ export function VoiceDemo() {
     }
   }
 
+  async function syncPushSubscription() {
+    if (!notificationsSupported) {
+      return;
+    }
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const existingSubscription = await registration.pushManager.getSubscription();
+
+      if (!existingSubscription) {
+        setNotificationsEnabled(false);
+        return;
+      }
+
+      const response = await fetch(`${apiBaseUrl}/api/reminders/subscriptions`, {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          endpoint: existingSubscription.endpoint,
+          expirationTime: existingSubscription.expirationTime,
+          keys: existingSubscription.toJSON().keys,
+          userAgent: navigator.userAgent,
+          deviceLabel: "PWA",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API retornou status ${response.status}`);
+      }
+
+      setNotificationsEnabled(true);
+      setNotificationsMessage("Alertas ativos neste aparelho.");
+    } catch {
+      setNotificationsEnabled(false);
+      setNotificationsMessage("Não consegui ativar os alertas agora.");
+    }
+  }
+
+  async function enablePushNotifications() {
+    if (!notificationsSupported || notificationsBusy) {
+      return;
+    }
+
+    setNotificationsBusy(true);
+    setNotificationsMessage(null);
+
+    try {
+      const permission = await Notification.requestPermission();
+
+      if (permission !== "granted") {
+        setNotificationsEnabled(false);
+        setNotificationsMessage("Permissão de alerta não concedida.");
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(pushPublicKey),
+        });
+      }
+
+      const response = await fetch(`${apiBaseUrl}/api/reminders/subscriptions`, {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          endpoint: subscription.endpoint,
+          expirationTime: subscription.expirationTime,
+          keys: subscription.toJSON().keys,
+          userAgent: navigator.userAgent,
+          deviceLabel: "PWA",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API retornou status ${response.status}`);
+      }
+
+      setNotificationsEnabled(true);
+      setNotificationsMessage("Pronto. Seus alertas de vencimento ficaram ativos.");
+    } catch {
+      setNotificationsEnabled(false);
+      setNotificationsMessage("Não consegui ativar os alertas agora.");
+    } finally {
+      setNotificationsBusy(false);
+    }
+  }
+
   function startVoiceCapture() {
     if (!speechSupported || !recognitionRef.current) {
       void runConversation(currentPhrase);
@@ -347,6 +478,32 @@ export function VoiceDemo() {
             <p className="transcript-pill">“{liveTranscript}”</p>
           ) : null}
         </div>
+        {notificationsSupported ? (
+          <div className="alerts-setup">
+            {notificationsEnabled ? (
+              <p className="alerts-setup__status">{notificationsMessage ?? "Alertas ativos."}</p>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="alerts-setup__button"
+                  onClick={enablePushNotifications}
+                  disabled={notificationsBusy}
+                >
+                  {notificationsBusy ? "Ativando alertas..." : "Ativar alertas"}
+                </button>
+                <p className="alerts-setup__hint">
+                  Receba aviso quando um gasto fixo vencer no dia.
+                </p>
+                {notificationsMessage ? (
+                  <p className="alerts-setup__hint alerts-setup__hint--error">
+                    {notificationsMessage}
+                  </p>
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : null}
       </section>
 
       {!speechSupported ? (

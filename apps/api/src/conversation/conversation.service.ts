@@ -66,6 +66,7 @@ export class ConversationService {
     "com",
     "e",
   ]);
+  private readonly commitmentProtectionKind = "commitment_protection";
 
   constructor(
     private readonly parserService: ParserService,
@@ -120,6 +121,10 @@ export class ConversationService {
       return "Pronto. Registrei esse pagamento no seu fixo.";
     }
 
+    if (persistence.reason === "commitments_protected") {
+      return "Seus gastos fixos estão protegidos. Para mexer neles, diga editar gastos fixos.";
+    }
+
     if (parsed.missingFields.includes("amount")) {
       return "Não entendi o valor. Me diga novamente.";
     }
@@ -137,6 +142,54 @@ export class ConversationService {
     }
 
       return "Não entendi. Me diga novamente.";
+  }
+
+  private isLockCommitmentsCommand(input: string) {
+    const normalized = this.normalizeText(input);
+
+    return (
+      (normalized.includes("consolide meus gastos fixos") ||
+        normalized.includes("consolide gastos fixos") ||
+        normalized.includes("consolidar meus gastos fixos") ||
+        normalized.includes("consolidar gastos fixos") ||
+        normalized.includes("fechar meus gastos fixos") ||
+        normalized.includes("fechar gastos fixos") ||
+        normalized.includes("feche meus gastos fixos") ||
+        normalized.includes("feche gastos fixos") ||
+        normalized.includes("proteger meus gastos fixos") ||
+        normalized.includes("proteger gastos fixos") ||
+        normalized.includes("proteja meus gastos fixos") ||
+        normalized.includes("proteja gastos fixos") ||
+        normalized.includes("travar meus gastos fixos") ||
+        normalized.includes("travar gastos fixos") ||
+        normalized.includes("trave meus gastos fixos") ||
+        normalized.includes("trave gastos fixos") ||
+        normalized.includes("bloquear meus gastos fixos") ||
+        normalized.includes("bloquear gastos fixos") ||
+        normalized.includes("bloqueie meus gastos fixos") ||
+        normalized.includes("bloqueie gastos fixos"))
+    );
+  }
+
+  private isUnlockCommitmentsCommand(input: string) {
+    const normalized = this.normalizeText(input);
+
+    return (
+      normalized.includes("editar meus gastos fixos") ||
+      normalized.includes("editar gastos fixos") ||
+      normalized.includes("abrir meus gastos fixos") ||
+      normalized.includes("abrir gastos fixos") ||
+      normalized.includes("abra meus gastos fixos") ||
+      normalized.includes("abra gastos fixos") ||
+      normalized.includes("destravar meus gastos fixos") ||
+      normalized.includes("destravar gastos fixos") ||
+      normalized.includes("destrave meus gastos fixos") ||
+      normalized.includes("destrave gastos fixos") ||
+      normalized.includes("desbloquear meus gastos fixos") ||
+      normalized.includes("desbloquear gastos fixos") ||
+      normalized.includes("desbloqueie meus gastos fixos") ||
+      normalized.includes("desbloqueie gastos fixos")
+    );
   }
 
   private extractMonthDeletionTarget(input: string) {
@@ -326,6 +379,142 @@ export class ConversationService {
     return null;
   }
 
+  private async createSystemConversation(channel: "text" | "voice" = "text") {
+    const admin = this.supabaseService.admin;
+
+    if (!admin) {
+      return { conversationId: null as string | null, error: "Supabase nao configurado." };
+    }
+
+    const { data, error } = await admin
+      .from("conversations")
+      .insert({
+        user_id: null,
+        channel,
+      })
+      .select("id")
+      .single();
+
+    return {
+      conversationId: (data?.id as string | null) ?? null,
+      error: error?.message ?? null,
+    };
+  }
+
+  private async getCommitmentProtectionMode() {
+    const admin = this.supabaseService.admin;
+
+    if (!admin) {
+      return "unlocked" as const;
+    }
+
+    const { data } = await admin
+      .from("conversation_states")
+      .select("draft_payload, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(50);
+
+    const latestProtectionState = (data ?? []).find((item) => {
+      const draftPayload = item.draft_payload as
+        | { kind?: string; mode?: string }
+        | null
+        | undefined;
+
+      return draftPayload?.kind === this.commitmentProtectionKind;
+    });
+
+    const mode = (latestProtectionState?.draft_payload as { mode?: string } | undefined)?.mode;
+
+    if (mode === "locked" || mode === "edit_once") {
+      return mode;
+    }
+
+    return "unlocked" as const;
+  }
+
+  private async saveCommitmentProtectionMode(
+    mode: "locked" | "edit_once",
+    channel: "text" | "voice" = "text",
+  ) {
+    const admin = this.supabaseService.admin;
+
+    if (!admin) {
+      return {
+        saved: false,
+        provider: "none" as const,
+        conversationId: null,
+        recordId: null,
+        reason: "Supabase nao configurado.",
+      };
+    }
+
+    const { conversationId, error: conversationError } = await this.createSystemConversation(channel);
+
+    if (!conversationId || conversationError) {
+      return {
+        saved: false,
+        provider: "supabase" as const,
+        conversationId: null,
+        recordId: null,
+        reason: conversationError ?? "Falha ao criar conversa de controle.",
+      };
+    }
+
+    const { error: stateError } = await admin.from("conversation_states").insert({
+      conversation_id: conversationId,
+      active_intent: "control",
+      missing_slots: [],
+      draft_payload: {
+        kind: this.commitmentProtectionKind,
+        mode,
+      },
+    });
+
+    if (stateError) {
+      return {
+        saved: false,
+        provider: "supabase" as const,
+        conversationId,
+        recordId: null,
+        reason: stateError.message,
+      };
+    }
+
+    return {
+      saved: true,
+      provider: "supabase" as const,
+      conversationId,
+      recordId: null,
+      reason: mode === "locked" ? "commitments_locked" : "commitments_edit_unlocked",
+      assistantMessage:
+        mode === "locked"
+          ? "Pronto. Seus gastos fixos ficaram protegidos. Para mexer neles, diga editar gastos fixos."
+          : "Pronto. Liberei a próxima edição dos seus gastos fixos.",
+    };
+  }
+
+  private async relockCommitmentsAfterEdit() {
+    const protectionMode = await this.getCommitmentProtectionMode();
+
+    if (protectionMode !== "edit_once") {
+      return;
+    }
+
+    await this.saveCommitmentProtectionMode("locked");
+  }
+
+  private protectedCommitmentsResponse(conversationId: string | null) {
+    return {
+      saved: false,
+      provider: "supabase" as const,
+      conversationId,
+      recordId: null,
+      reason: "commitments_protected",
+      assistantMessage:
+        "Seus gastos fixos estão protegidos. Para mexer neles, diga editar gastos fixos.",
+    };
+  }
+
   private isVariableTransactionCategory(category: string | null) {
     if (!category) {
       return true;
@@ -359,12 +548,18 @@ export class ConversationService {
     const fixedOnly = removalScope === "commitment";
     const transactionOnly =
       removalScope === "transaction" || removalScope === "variable";
+    const commitmentProtectionMode = await this.getCommitmentProtectionMode();
+    const commitmentsProtected = commitmentProtectionMode === "locked";
     const latestOnly =
       normalized.includes("ultimo registro") ||
       normalized.includes("ultimo") ||
       normalized.includes("último");
 
     if (fixedOnly) {
+      if (commitmentsProtected) {
+        return this.protectedCommitmentsResponse(null);
+      }
+
       let query = admin
         .from("commitments")
         .select("id, title, created_at")
@@ -422,6 +617,8 @@ export class ConversationService {
           assistantMessage: "Não consegui retirar esse gasto fixo agora.",
         };
       }
+
+      await this.relockCommitmentsAfterEdit();
 
       return {
         saved: true,
@@ -562,7 +759,7 @@ export class ConversationService {
     ]);
 
     const latestTransaction = latestTransactionResponse.data;
-    const latestCommitment = latestCommitmentResponse.data;
+    const latestCommitment = commitmentsProtected ? null : latestCommitmentResponse.data;
 
     if (!latestTransaction && !latestCommitment) {
       return {
@@ -633,6 +830,14 @@ export class ConversationService {
       return null;
     }
 
+    if (this.isLockCommitmentsCommand(input)) {
+      return this.saveCommitmentProtectionMode("locked");
+    }
+
+    if (this.isUnlockCommitmentsCommand(input)) {
+      return this.saveCommitmentProtectionMode("edit_once");
+    }
+
     if (this.isDeleteAllTransactionsCommand(input)) {
       const { error } = await admin.from("transactions").delete().not("id", "is", null);
 
@@ -659,6 +864,12 @@ export class ConversationService {
     }
 
     if (this.isDeleteAllCommitmentsCommand(input)) {
+      const commitmentProtectionMode = await this.getCommitmentProtectionMode();
+
+      if (commitmentProtectionMode === "locked") {
+        return this.protectedCommitmentsResponse(null);
+      }
+
       const { error } = await admin.from("commitments").delete().not("id", "is", null);
 
       if (error) {
@@ -672,6 +883,8 @@ export class ConversationService {
           assistantMessage: "Não consegui apagar os seus gastos fixos agora.",
         };
       }
+
+      await this.relockCommitmentsAfterEdit();
 
       return {
         saved: true,
@@ -960,6 +1173,9 @@ export class ConversationService {
       this.logger.error(`Falha ao salvar estado da conversa: ${stateError.message}`);
     }
 
+    const commitmentProtectionMode = await this.getCommitmentProtectionMode();
+    const commitmentsProtected = commitmentProtectionMode === "locked";
+
     if (parsed.intent === "correction" && parsed.amount !== null) {
       const { data: latestTransaction, error: latestTransactionError } = await admin
         .from("transactions")
@@ -1051,6 +1267,10 @@ export class ConversationService {
         parsed.dueDay !== null &&
         parsed.amount === null
       ) {
+        if (commitmentsProtected) {
+          return this.protectedCommitmentsResponse(conversation.id);
+        }
+
         const normalizedParsedDescription = this.resolveCommitmentLookupDescription(
           parsed.description,
         );
@@ -1093,6 +1313,8 @@ export class ConversationService {
               reason: updateDueDayError.message,
             };
           }
+
+          await this.relockCommitmentsAfterEdit();
 
           return {
             saved: true,
@@ -1191,6 +1413,10 @@ export class ConversationService {
     }
 
     if (parsed.intent === "commitment" && parsed.description) {
+      if (commitmentsProtected) {
+        return this.protectedCommitmentsResponse(conversation.id);
+      }
+
       const normalizedDescription = this.normalizeText(parsed.description);
       const normalizedRawText = this.normalizeText(dto.text);
       const range = this.buildCommitmentDateRange(
@@ -1294,6 +1520,8 @@ export class ConversationService {
             }
           }
 
+          await this.relockCommitmentsAfterEdit();
+
           return {
             saved: true,
             provider: "supabase",
@@ -1339,6 +1567,8 @@ export class ConversationService {
           };
         }
 
+        await this.relockCommitmentsAfterEdit();
+
         return {
           saved: true,
           provider: "supabase",
@@ -1373,6 +1603,8 @@ export class ConversationService {
           reason: commitmentError.message,
         };
       }
+
+      await this.relockCommitmentsAfterEdit();
 
       return {
         saved: true,

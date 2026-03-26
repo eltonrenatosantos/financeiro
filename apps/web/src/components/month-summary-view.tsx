@@ -76,6 +76,25 @@ function parseMonthKey(monthKey: string) {
   return { year, month };
 }
 
+function sortCommitmentsByDay(items: CommitmentItem[]) {
+  return [...items].sort((left, right) => {
+    const leftDay = left.day_of_month ?? Number.POSITIVE_INFINITY;
+    const rightDay = right.day_of_month ?? Number.POSITIVE_INFINITY;
+
+    if (leftDay !== rightDay) {
+      return leftDay - rightDay;
+    }
+
+    const titleComparison = left.title.localeCompare(right.title, "pt-BR");
+
+    if (titleComparison !== 0) {
+      return titleComparison;
+    }
+
+    return left.created_at.localeCompare(right.created_at);
+  });
+}
+
 export function MonthSummaryView({ monthKey }: { monthKey: string }) {
   const parsed = parseMonthKey(monthKey);
   const [items, setItems] = useState<TransactionItem[]>([]);
@@ -203,12 +222,12 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
   }, [commitments, parsed]);
 
   const fixedExpenseCommitments = useMemo(
-    () => activeCommitments.filter((item) => item.direction === "expense"),
+    () => sortCommitmentsByDay(activeCommitments.filter((item) => item.direction === "expense")),
     [activeCommitments],
   );
 
   const fixedIncomeCommitments = useMemo(
-    () => activeCommitments.filter((item) => item.direction === "income"),
+    () => sortCommitmentsByDay(activeCommitments.filter((item) => item.direction === "income")),
     [activeCommitments],
   );
 
