@@ -1,0 +1,102 @@
+[
+  {
+    "user_id": null,
+    "title": "moradia",
+    "amount": 1000,
+    "direction": "expense",
+    "recurrence_rule": "monthly",
+    "day_of_month": 10,
+    "starts_on": null,
+    "ends_on": null
+  },
+  {
+    "user_id": null,
+    "title": "internet",
+    "amount": 130,
+    "direction": "expense",
+    "recurrence_rule": "monthly",
+    "day_of_month": 10,
+    "starts_on": null,
+    "ends_on": null
+  },
+  {
+    "user_id": null,
+    "title": "condominio",
+    "amount": 500,
+    "direction": "expense",
+    "recurrence_rule": "monthly",
+    "day_of_month": 10,
+    "starts_on": null,
+    "ends_on": null
+  },
+  {
+    "user_id": null,
+    "title": "emprestimo",
+    "amount": 500,
+    "direction": "expense",
+    "recurrence_rule": "monthly",
+    "day_of_month": 10,
+    "starts_on": null,
+    "ends_on": null
+  },
+  {
+    "user_id": null,
+    "title": "energia",
+    "amount": 400,
+    "direction": "expense",
+    "recurrence_rule": "monthly",
+    "day_of_month": 10,
+    "starts_on": null,
+    "ends_on": null
+  },
+  {
+    "user_id": null,
+    "title": "dentista",
+    "amount": 300,
+    "direction": "expense",
+    "recurrence_rule": "monthly",
+    "day_of_month": 10,
+    "starts_on": null,
+    "ends_on": null
+  },
+  {
+    "user_id": null,
+    "title": "oculos",
+    "amount": 90,
+    "direction": "expense",
+    "recurrence_rule": "monthly",
+    "day_of_month": 10,
+    "starts_on": "2026-03-01",
+    "ends_on": "2026-05-31"
+  },
+  {
+    "user_id": null,
+    "title": "streaming",
+    "amount": 75,
+    "direction": "expense",
+    "recurrence_rule": "monthly",
+    "day_of_month": 20,
+    "starts_on": null,
+    "ends_on": null
+  },
+  {
+    "user_id": null,
+    "title": "plano de saude",
+    "amount": 900,
+    "direction": "expense",
+    "recurrence_rule": "monthly",
+    "day_of_month": 10,
+    "starts_on": null,
+    "ends_on": null
+  },
+  {
+    "user_id": null,
+    "title": "compras do mes",
+    "amount": 1500,
+    "direction": "expense",
+    "recurrence_rule": "monthly",
+    "day_of_month": null,
+    "starts_on": null,
+    "ends_on": null
+  }
+]

@@ -147,6 +147,8 @@ export function VoiceDemo() {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const pendingTranscriptRef = useRef("");
   const shouldSubmitRef = useRef(false);
+  const isPressingRef = useRef(false);
+  const isRecognitionActiveRef = useRef(false);
   const shouldShowConversation =
     messages.length > 0 || Boolean(errorMessage);
 
@@ -161,7 +163,7 @@ export function VoiceDemo() {
 
     const recognition = new Recognition();
     recognition.lang = "pt-BR";
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
 
     recognition.onresult = (event) => {
@@ -177,6 +179,7 @@ export function VoiceDemo() {
     };
 
     recognition.onerror = (event) => {
+      isRecognitionActiveRef.current = false;
       shouldSubmitRef.current = false;
       setStatus("error");
       setErrorMessage(
@@ -185,9 +188,26 @@ export function VoiceDemo() {
     };
 
     recognition.onend = () => {
+      isRecognitionActiveRef.current = false;
       const transcript = pendingTranscriptRef.current.trim();
 
       if (!shouldSubmitRef.current) {
+        return;
+      }
+
+      if (isPressingRef.current) {
+        window.setTimeout(() => {
+          if (!isPressingRef.current || isRecognitionActiveRef.current || !recognitionRef.current) {
+            return;
+          }
+
+          try {
+            recognitionRef.current.start();
+            isRecognitionActiveRef.current = true;
+          } catch {
+            // O iPhone pode levar um instante para permitir um novo start.
+          }
+        }, 120);
         return;
       }
 
@@ -208,6 +228,7 @@ export function VoiceDemo() {
     setSpeechSupported(true);
 
     return () => {
+      isRecognitionActiveRef.current = false;
       recognition.stop();
       recognitionRef.current = null;
     };
@@ -426,6 +447,11 @@ export function VoiceDemo() {
       return;
     }
 
+    if (status === "sending" || status === "responding" || isRecognitionActiveRef.current) {
+      return;
+    }
+
+    isPressingRef.current = true;
     pendingTranscriptRef.current = "";
     setLiveTranscript("");
     setErrorMessage(null);
@@ -434,7 +460,10 @@ export function VoiceDemo() {
 
     try {
       recognitionRef.current.start();
+      isRecognitionActiveRef.current = true;
     } catch {
+      isPressingRef.current = false;
+      isRecognitionActiveRef.current = false;
       shouldSubmitRef.current = false;
       setStatus("error");
       setErrorMessage(
@@ -443,9 +472,27 @@ export function VoiceDemo() {
     }
   }
 
+  function stopVoiceCapture() {
+    if (!speechSupported || !recognitionRef.current || !isPressingRef.current) {
+      return;
+    }
+
+    isPressingRef.current = false;
+
+    if (!isRecognitionActiveRef.current) {
+      return;
+    }
+
+    try {
+      recognitionRef.current.stop();
+    } catch {
+      isRecognitionActiveRef.current = false;
+    }
+  }
+
   const statusLabel = {
     idle: "Pronto",
-    listening: "Escutando",
+    listening: "Segure para falar",
     sending: "Analisando",
     responding: "Registrando",
     error: "Algo falhou",
@@ -466,8 +513,33 @@ export function VoiceDemo() {
           <button
             type="button"
             className={`voice-trigger voice-trigger--${status}`}
-            onClick={startVoiceCapture}
-            disabled={status === "listening" || status === "sending" || status === "responding"}
+            onPointerDown={startVoiceCapture}
+            onPointerUp={stopVoiceCapture}
+            onPointerCancel={stopVoiceCapture}
+            onPointerLeave={stopVoiceCapture}
+            onKeyDown={(event) => {
+              if (event.repeat) {
+                return;
+              }
+
+              if (event.key === " " || event.key === "Enter") {
+                event.preventDefault();
+                startVoiceCapture();
+              }
+            }}
+            onKeyUp={(event) => {
+              if (event.key === " " || event.key === "Enter") {
+                event.preventDefault();
+                stopVoiceCapture();
+              }
+            }}
+            onClick={(event) => {
+              if (speechSupported) {
+                event.preventDefault();
+              }
+            }}
+            disabled={status === "sending" || status === "responding"}
+            aria-label={speechSupported ? "Segure para falar e solte para enviar" : "Enviar exemplo"}
           >
             <span className="voice-orb" aria-hidden="true" />
           </button>
