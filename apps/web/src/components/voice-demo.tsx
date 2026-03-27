@@ -101,6 +101,7 @@ type TransactionsApiResponse = {
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 const pushPublicKey = process.env.NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY ?? "";
+const notificationsPromptStorageKey = "financeiro-notifications-prompt";
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -144,6 +145,9 @@ export function VoiceDemo() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [notificationsBusy, setNotificationsBusy] = useState(false);
   const [notificationsMessage, setNotificationsMessage] = useState<string | null>(null);
+  const [notificationsPromptState, setNotificationsPromptState] = useState<
+    "unknown" | "pending" | "enabled" | "dismissed"
+  >("unknown");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const pendingTranscriptRef = useRef("");
   const shouldSubmitRef = useRef(false);
@@ -247,7 +251,33 @@ export function VoiceDemo() {
 
     setNotificationsSupported(supported);
 
-    if (!supported || Notification.permission !== "granted") {
+    if (!supported) {
+      setNotificationsPromptState("dismissed");
+      return;
+    }
+
+    const storedPromptState =
+      window.localStorage.getItem(notificationsPromptStorageKey) as
+        | "enabled"
+        | "dismissed"
+        | null;
+
+    if (storedPromptState === "enabled") {
+      setNotificationsEnabled(true);
+      setNotificationsPromptState("enabled");
+    } else if (storedPromptState === "dismissed") {
+      setNotificationsPromptState("dismissed");
+    } else {
+      setNotificationsPromptState("pending");
+    }
+
+    if (Notification.permission === "denied") {
+      window.localStorage.setItem(notificationsPromptStorageKey, "dismissed");
+      setNotificationsPromptState("dismissed");
+      return;
+    }
+
+    if (Notification.permission !== "granted") {
       return;
     }
 
@@ -355,6 +385,9 @@ export function VoiceDemo() {
 
       if (!existingSubscription) {
         setNotificationsEnabled(false);
+        if (notificationsPromptState !== "dismissed") {
+          setNotificationsPromptState("pending");
+        }
         return;
       }
 
@@ -378,6 +411,8 @@ export function VoiceDemo() {
       }
 
       setNotificationsEnabled(true);
+      setNotificationsPromptState("enabled");
+      window.localStorage.setItem(notificationsPromptStorageKey, "enabled");
       setNotificationsMessage("Alertas ativos neste aparelho.");
     } catch {
       setNotificationsEnabled(false);
@@ -398,6 +433,10 @@ export function VoiceDemo() {
 
       if (permission !== "granted") {
         setNotificationsEnabled(false);
+        if (permission === "denied") {
+          setNotificationsPromptState("dismissed");
+          window.localStorage.setItem(notificationsPromptStorageKey, "dismissed");
+        }
         setNotificationsMessage("Permissão de alerta não concedida.");
         return;
       }
@@ -432,6 +471,8 @@ export function VoiceDemo() {
       }
 
       setNotificationsEnabled(true);
+      setNotificationsPromptState("enabled");
+      window.localStorage.setItem(notificationsPromptStorageKey, "enabled");
       setNotificationsMessage("Pronto. Seus alertas de vencimento ficaram ativos.");
     } catch {
       setNotificationsEnabled(false);
@@ -498,6 +539,11 @@ export function VoiceDemo() {
     error: "Algo falhou",
   }[status];
 
+  const shouldShowNotificationsSetup =
+    notificationsSupported &&
+    notificationsPromptState === "pending" &&
+    !notificationsEnabled;
+
   return (
     <section className="demo-shell">
       <section className="voice-stage voice-stage--hero">
@@ -550,30 +596,24 @@ export function VoiceDemo() {
             <p className="transcript-pill">“{liveTranscript}”</p>
           ) : null}
         </div>
-        {notificationsSupported ? (
+        {shouldShowNotificationsSetup ? (
           <div className="alerts-setup">
-            {notificationsEnabled ? (
-              <p className="alerts-setup__status">{notificationsMessage ?? "Alertas ativos."}</p>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="alerts-setup__button"
-                  onClick={enablePushNotifications}
-                  disabled={notificationsBusy}
-                >
-                  {notificationsBusy ? "Ativando alertas..." : "Ativar alertas"}
-                </button>
-                <p className="alerts-setup__hint">
-                  Receba aviso quando um gasto fixo vencer no dia.
-                </p>
-                {notificationsMessage ? (
-                  <p className="alerts-setup__hint alerts-setup__hint--error">
-                    {notificationsMessage}
-                  </p>
-                ) : null}
-              </>
-            )}
+            <button
+              type="button"
+              className="alerts-setup__button"
+              onClick={enablePushNotifications}
+              disabled={notificationsBusy}
+            >
+              {notificationsBusy ? "Ativando alertas..." : "Ativar alertas"}
+            </button>
+            <p className="alerts-setup__hint">
+              Receba aviso quando um gasto fixo vencer no dia.
+            </p>
+            {notificationsMessage ? (
+              <p className="alerts-setup__hint alerts-setup__hint--error">
+                {notificationsMessage}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </section>
