@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { BottomNav } from "../components/bottom-nav";
+import { AuthGate } from "../components/auth-gate";
+import { AuthProvider } from "../components/auth-provider";
 import { PwaProvider } from "../components/pwa-provider";
 import "./globals.css";
 
@@ -33,11 +34,10 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body>
-        <PwaProvider />
-        <div className="app-shell">
-          {children}
-          <BottomNav />
-        </div>
+        <AuthProvider>
+          <PwaProvider />
+          <AuthGate>{children}</AuthGate>
+        </AuthProvider>
       </body>
     </html>
   );

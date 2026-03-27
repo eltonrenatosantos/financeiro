@@ -120,6 +120,118 @@ body {
   max-width: 760px;
 }
 
+.auth-shell,
+.auth-shell-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding-bottom: 40px;
+}
+
+.auth-panel {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  padding: 32px 24px 28px;
+  border-radius: 28px;
+  border: 1px solid rgba(73, 46, 125, 0.1);
+  background:
+    radial-gradient(circle at top center, rgba(255, 255, 255, 0.3), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 243, 255, 0.86));
+  box-shadow: 0 22px 60px rgba(39, 25, 70, 0.1);
+  text-align: center;
+}
+
+.auth-panel h1 {
+  margin: 0;
+  max-width: 12ch;
+  font-size: clamp(2rem, 6vw, 3.1rem);
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+}
+
+.auth-panel--loading {
+  min-height: 280px;
+}
+
+.auth-copy {
+  max-width: 28ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.auth-mark {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(126, 79, 228, 0.22), rgba(90, 45, 183, 0.95));
+  box-shadow:
+    0 0 0 10px rgba(255, 255, 255, 0.22),
+    0 14px 34px rgba(62, 31, 129, 0.18);
+  position: relative;
+}
+
+.auth-mark::after {
+  content: "";
+  position: absolute;
+  inset: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.auth-google-button {
+  width: min(320px, 100%);
+  min-height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(73, 46, 125, 0.1);
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--text);
+  box-shadow: 0 14px 34px rgba(39, 25, 70, 0.08);
+  font-size: 0.98rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.auth-google-button__icon {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-google-button__icon svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.settings-actions {
+  margin: 18px 0 0;
+}
+
+.settings-actions__button {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(73, 46, 125, 0.08);
+  background: rgba(90, 45, 183, 0.04);
+  color: var(--accent-strong);
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -268,6 +380,14 @@ body {
   position: relative;
 }
 
+.voice-stage--bottom {
+  align-content: end;
+  justify-items: center;
+  min-height: auto;
+  margin-top: auto;
+  padding-bottom: 8px;
+}
+
 .voice-stage--hero::before {
   content: "";
   position: absolute;
@@ -282,8 +402,10 @@ body {
 }
 
 .demo-shell {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
+  min-height: calc(100dvh - 150px);
 }
 
 .voice-center {
@@ -508,7 +630,7 @@ body {
   justify-items: center;
   gap: 8px;
   min-height: 34px;
-  margin-top: -10px;
+  margin-top: 0;
 }
 
 .alerts-setup {
@@ -1293,6 +1415,10 @@ body {
 @media (min-width: 900px) {
   .app-main {
     padding: 24px 24px 116px;
+  }
+
+  .demo-shell {
+    min-height: calc(100dvh - 164px);
   }
 }
 
