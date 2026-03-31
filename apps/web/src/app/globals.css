@@ -126,6 +126,8 @@ body {
   place-items: center;
   min-height: 100dvh;
   padding-bottom: 40px;
+  position: relative;
+  z-index: 1;
 }
 
 .auth-panel {
@@ -140,6 +142,8 @@ body {
     linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 243, 255, 0.86));
   box-shadow: 0 22px 60px rgba(39, 25, 70, 0.1);
   text-align: center;
+  position: relative;
+  z-index: 2;
 }
 
 .auth-panel h1 {
@@ -201,6 +205,15 @@ body {
   font-size: 0.98rem;
   font-weight: 650;
   letter-spacing: -0.02em;
+  position: relative;
+  z-index: 3;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.auth-google-button:disabled {
+  opacity: 0.7;
 }
 
 .auth-google-button__icon {
@@ -215,6 +228,14 @@ body {
   width: 22px;
   height: 22px;
   display: block;
+}
+
+.auth-error {
+  max-width: 30ch;
+  margin: 0;
+  color: #8d3d2f;
+  font-size: 0.92rem;
+  line-height: 1.4;
 }
 
 .settings-actions {
@@ -257,11 +278,11 @@ body {
 
 .extract-hero {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 18px;
   margin-bottom: 16px;
-  padding: 22px 20px 20px;
+  padding: 22px 20px;
   border-radius: 24px;
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.12), transparent 28%),
@@ -285,7 +306,7 @@ body {
 }
 
 .extract-hero h1 {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   font-size: clamp(1.9rem, 6vw, 3rem);
   line-height: 0.94;
   max-width: 11ch;
@@ -298,8 +319,26 @@ body {
   color: rgba(255, 255, 255, 0.72);
 }
 
+.hero-copy-block {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.hero-balance-block {
+  display: grid;
+  align-content: center;
+  justify-items: end;
+  gap: 2px;
+  text-align: right;
+  min-width: max-content;
+  flex: 0 0 auto;
+}
+
 .hero-balance-label {
-  margin: 14px 0 4px;
+  margin: 0 0 4px;
   font-size: 0.78rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -346,12 +385,36 @@ body {
     transform var(--ease-standard);
 }
 
+.extract-summary__card--estimated {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 244, 253, 0.95));
+  border-color: rgba(73, 46, 125, 0.08);
+}
+
+.extract-summary__card--real {
+  background:
+    linear-gradient(180deg, rgba(244, 239, 255, 0.98), rgba(236, 229, 252, 0.96));
+  border-color: rgba(90, 45, 183, 0.12);
+}
+
 .extract-summary__card--sheet {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
+}
+
+.extract-summary__card-content {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.extract-summary__card-value {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .extract-summary__card strong {
@@ -958,11 +1021,11 @@ body {
 
 .month-sheet-hero {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 18px;
   margin-bottom: 16px;
-  padding: 24px 20px 22px;
+  padding: 22px 20px;
   border-radius: 26px;
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.12), transparent 28%),
@@ -974,7 +1037,7 @@ body {
 }
 
 .month-sheet-hero h1 {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   font-size: clamp(1.85rem, 6vw, 2.8rem);
   line-height: 0.95;
   letter-spacing: -0.04em;
@@ -1003,6 +1066,11 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin: -16px 0 22px;
+}
+
+.month-sheet-summary--expanded {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
 }
 
 .month-sheet-layout {
@@ -1145,6 +1213,106 @@ body {
 .month-sheet-date-chip--income {
   background: rgba(22, 120, 107, 0.08);
   border-color: rgba(22, 120, 107, 0.08);
+}
+
+.month-sheet-insights {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.month-sheet-insight {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(94, 60, 161, 0.12);
+  background:
+    radial-gradient(circle at top left, rgba(133, 96, 214, 0.08), transparent 34%),
+    rgba(251, 248, 255, 0.9);
+  color: var(--accent-strong);
+  box-shadow: 0 12px 28px rgba(39, 25, 70, 0.05);
+}
+
+.month-sheet-insight strong {
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+}
+
+.month-sheet-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.month-sheet-progress-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(73, 46, 125, 0.08);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.month-sheet-progress-card strong {
+  font-size: 1.2rem;
+  letter-spacing: -0.04em;
+}
+
+.month-sheet-progress-value {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+.month-sheet-progress-card--alert {
+  background: rgba(164, 86, 74, 0.06);
+  border-color: rgba(164, 86, 74, 0.12);
+}
+
+
+.month-sheet-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  border: 1px solid transparent;
+}
+
+.month-sheet-status--open,
+.month-sheet-status--expected {
+  color: #9a4f43;
+  background: rgba(184, 107, 94, 0.1);
+  border-color: rgba(184, 107, 94, 0.14);
+}
+
+.month-sheet-status--overdue {
+  color: #8a3327;
+  background: rgba(172, 69, 52, 0.16);
+  border-color: rgba(172, 69, 52, 0.2);
+}
+
+.month-sheet-status--paid {
+  color: #0e776c;
+  background: rgba(22, 120, 107, 0.1);
+  border-color: rgba(22, 120, 107, 0.14);
+}
+
+.month-sheet-row--status-paid {
+  background: linear-gradient(180deg, rgba(22, 120, 107, 0.03), transparent);
+}
+
+.month-sheet-row--status-overdue {
+  background: linear-gradient(180deg, rgba(172, 69, 52, 0.045), transparent);
+}
+
+.month-sheet-row--status-open {
+  background: linear-gradient(180deg, rgba(184, 107, 94, 0.03), transparent);
 }
 
 .month-sheet-row--linked {
@@ -1439,9 +1607,21 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .month-sheet-summary--expanded,
+  .month-sheet-progress-grid {
+    grid-template-columns: 1fr;
+  }
+
   .month-sheet-hero {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .hero-balance-block {
+    justify-items: start;
+    text-align: left;
+    min-width: 0;
+    gap: 2px;
   }
 
   .month-sheet-section__header {
@@ -1471,6 +1651,25 @@ body {
 
   .month-sheet-date-chip strong {
     font-size: 1.02rem;
+  }
+
+  .month-sheet-progress-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .month-sheet-progress-card {
+    padding: 12px 10px;
+    border-radius: 16px;
+  }
+
+  .month-sheet-progress-card strong {
+    font-size: 1.02rem;
+  }
+
+  .month-sheet-progress-value {
+    font-size: 0.76rem;
+    line-height: 1.25;
   }
 
   .extract-hero h1,

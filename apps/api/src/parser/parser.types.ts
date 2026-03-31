@@ -17,6 +17,8 @@ export interface ParsedConversationResult {
   startMonthReference: "current" | "next" | null;
   startMonth: number | null;
   startYear: number | null;
+  endMonth: number | null;
+  endYear: number | null;
   timeReference: "today" | "yesterday" | "tomorrow" | null;
   dueDay: number | null;
   counterparty: string | null;

@@ -5,11 +5,23 @@ import { FINANCE_DATA_UPDATED_EVENT } from "./data-sync";
 import {
   formatDateTimeInZone,
   getLocalDayOfMonth,
-  getLocalYearMonth,
   resolveUserTimeZone,
 } from "./date-time";
 import { formatDisplayText } from "./display-text";
 import { authenticatedFetch } from "../lib/api";
+
+type MonthFixedItem = {
+  id: string;
+  title: string;
+  amount: number;
+  direction: "expense" | "income";
+  dayOfMonth: number | null;
+  dueOn: string;
+  status: "open" | "paid" | "overdue" | "expected" | "confirmed";
+  paidAt: string | null;
+  overdueDays: number;
+  transactionId: string | null;
+};
 
 type TransactionItem = {
   id: string;
@@ -20,28 +32,45 @@ type TransactionItem = {
   created_at: string;
 };
 
-type TransactionsApiResponse = {
-  items: TransactionItem[];
+type DashboardSummaryResponse = {
+  placeholder: boolean;
   provider: "supabase" | "none";
   reason?: string;
-};
-
-type CommitmentItem = {
-  id: string;
-  title: string;
-  amount: number | null;
-  direction: "expense" | "income";
-  recurrence_rule: string | null;
-  day_of_month: number | null;
-  starts_on: string | null;
-  ends_on: string | null;
-  created_at: string;
-};
-
-type CommitmentsApiResponse = {
-  items: CommitmentItem[];
-  provider: "supabase" | "none";
-  reason?: string;
+  month?: {
+    key: string;
+    title: string;
+  };
+  metrics: {
+    estimatedIncome: number;
+    realIncome: number;
+    estimatedExpense: number;
+    realExpense: number;
+    fixedExpenseEstimated: number;
+    fixedExpenseReal: number;
+    variableEstimated: number;
+    variableReal: number;
+    estimatedBalance: number;
+    realBalance: number;
+  };
+  insights: Array<{
+    id: "income-gap" | "variable-overrun" | "balance-risk" | "overdue-fixed" | "month-ok";
+    target: "income" | "variable" | "balance" | "fixed" | "general";
+    tone: "warning" | "danger" | "success";
+    message: string;
+  }>;
+  counts: {
+    fixedPaid: number;
+    fixedOpen: number;
+    fixedOverdue: number;
+    fixedTotal: number;
+    fixedPaidAmount: number;
+    fixedOpenAmount: number;
+    fixedOverdueAmount: number;
+  };
+  fixedExpenses: MonthFixedItem[];
+  fixedIncomes: MonthFixedItem[];
+  incomeTransactions: TransactionItem[];
+  variableExpenses: TransactionItem[];
 };
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -51,13 +80,6 @@ function formatCurrency(value: number) {
     style: "currency",
     currency: "BRL",
   }).format(value);
-}
-
-function formatMonthTitle(year: number, month: number) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    month: "long",
-    year: "numeric",
-  }).format(new Date(year, month - 1, 1));
 }
 
 function parseMonthKey(monthKey: string) {
@@ -77,29 +99,43 @@ function parseMonthKey(monthKey: string) {
   return { year, month };
 }
 
-function sortCommitmentsByDay(items: CommitmentItem[]) {
-  return [...items].sort((left, right) => {
-    const leftDay = left.day_of_month ?? Number.POSITIVE_INFINITY;
-    const rightDay = right.day_of_month ?? Number.POSITIVE_INFINITY;
+function getStatusLabel(item: MonthFixedItem) {
+  if (item.direction === "income") {
+    return item.status === "confirmed" ? "Confirmada" : "Prevista";
+  }
 
-    if (leftDay !== rightDay) {
-      return leftDay - rightDay;
-    }
+  if (item.status === "paid") {
+    return "Pago";
+  }
 
-    const titleComparison = left.title.localeCompare(right.title, "pt-BR");
+  if (item.status === "overdue") {
+    return item.overdueDays === 1 ? "Vencido há 1 dia" : `Vencido há ${item.overdueDays} dias`;
+  }
 
-    if (titleComparison !== 0) {
-      return titleComparison;
-    }
+  return "Em aberto";
+}
 
-    return left.created_at.localeCompare(right.created_at);
-  });
+function getStatusClass(item: MonthFixedItem) {
+  if (item.direction === "income") {
+    return item.status === "confirmed"
+      ? "month-sheet-status month-sheet-status--paid"
+      : "month-sheet-status month-sheet-status--expected";
+  }
+
+  if (item.status === "paid") {
+    return "month-sheet-status month-sheet-status--paid";
+  }
+
+  if (item.status === "overdue") {
+    return "month-sheet-status month-sheet-status--overdue";
+  }
+
+  return "month-sheet-status month-sheet-status--open";
 }
 
 export function MonthSummaryView({ monthKey }: { monthKey: string }) {
   const parsed = parseMonthKey(monthKey);
-  const [items, setItems] = useState<TransactionItem[]>([]);
-  const [commitments, setCommitments] = useState<CommitmentItem[]>([]);
+  const [data, setData] = useState<DashboardSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [timeZone, setTimeZone] = useState("America/Sao_Paulo");
@@ -109,43 +145,41 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
   }, []);
 
   useEffect(() => {
+    if (!parsed) {
+      setLoading(false);
+      setErrorMessage("Mês inválido.");
+      return;
+    }
+
     let cancelled = false;
 
     async function loadMonth() {
       try {
-        const [transactionsResponse, commitmentsResponse] = await Promise.all([
-          authenticatedFetch(`${apiBaseUrl}/api/transactions`, {
+        const response = await authenticatedFetch(
+          `${apiBaseUrl}/api/dashboard/summary?month=${monthKey}`,
+          {
             cache: "no-store",
-          }),
-          authenticatedFetch(`${apiBaseUrl}/api/commitments`, {
-            cache: "no-store",
-          }),
-        ]);
+          },
+        );
 
-        if (!transactionsResponse.ok) {
-          throw new Error(`API retornou status ${transactionsResponse.status}`);
+        if (!response.ok) {
+          throw new Error(`API retornou status ${response.status}`);
         }
 
-        if (!commitmentsResponse.ok) {
-          throw new Error(`API retornou status ${commitmentsResponse.status}`);
-        }
-
-        const transactionsData = (await transactionsResponse.json()) as TransactionsApiResponse;
-        const commitmentsData = (await commitmentsResponse.json()) as CommitmentsApiResponse;
+        const nextData = (await response.json()) as DashboardSummaryResponse;
 
         if (cancelled) {
           return;
         }
 
-        setItems(transactionsData.items);
-        setCommitments(commitmentsData.items);
-        setErrorMessage(transactionsData.reason ?? commitmentsData.reason ?? null);
+        setData(nextData);
+        setErrorMessage(nextData.reason ?? null);
       } catch {
         if (cancelled) {
           return;
         }
 
-        setErrorMessage("Não consegui carregar essa planilha mensal agora.");
+        setErrorMessage("Não consegui carregar esse mês agora.");
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -173,99 +207,65 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
       window.removeEventListener(FINANCE_DATA_UPDATED_EVENT, refreshIfVisible);
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [monthKey, parsed]);
 
-  const monthItems = useMemo(() => {
-    if (!parsed) {
+  const metrics = data?.metrics;
+  const counts = data?.counts;
+  const fixedExpenses = data?.fixedExpenses ?? [];
+  const fixedIncomes = data?.fixedIncomes ?? [];
+  const incomeTransactions = data?.incomeTransactions ?? [];
+  const variableExpenses = data?.variableExpenses ?? [];
+
+  const topCards = useMemo(() => {
+    if (!metrics) {
       return [];
     }
 
-    return items.filter((item) => {
-      const local = getLocalYearMonth(item.created_at, timeZone);
-      return local.year === parsed.year && local.month === parsed.month;
-    });
-  }, [items, parsed, timeZone]);
-
-  const monthSummary = useMemo(() => {
-    return monthItems.reduce(
-      (acc, item) => {
-        const amount = item.amount ?? 0;
-
-        if (item.direction === "income") {
-          acc.income += amount;
-        } else if (item.direction === "expense") {
-          acc.expense += amount;
-        }
-
-        return acc;
+    return [
+      {
+        key: "estimated-income",
+        label: "Entradas estimadas",
+        value: metrics.estimatedIncome,
+        tone: "income",
+        surface: "estimated",
       },
-      { income: 0, expense: 0 },
-    );
-  }, [monthItems]);
-
-  const activeCommitments = useMemo(() => {
-    if (!parsed) {
-      return [];
-    }
-
-    const monthStart = new Date(parsed.year, parsed.month - 1, 1);
-    const monthEnd = new Date(parsed.year, parsed.month, 0);
-
-    return commitments.filter((item) => {
-      const startsOn = item.starts_on ? new Date(`${item.starts_on}T00:00:00`) : null;
-      const endsOn = item.ends_on ? new Date(`${item.ends_on}T23:59:59`) : null;
-
-      const started = !startsOn || startsOn <= monthEnd;
-      const notEnded = !endsOn || endsOn >= monthStart;
-
-      return started && notEnded;
-    });
-  }, [commitments, parsed]);
-
-  const fixedExpenseCommitments = useMemo(
-    () => sortCommitmentsByDay(activeCommitments.filter((item) => item.direction === "expense")),
-    [activeCommitments],
-  );
-
-  const fixedIncomeCommitments = useMemo(
-    () => sortCommitmentsByDay(activeCommitments.filter((item) => item.direction === "income")),
-    [activeCommitments],
-  );
-
-  const commitmentsTotal = useMemo(
-    () =>
-      fixedExpenseCommitments.reduce((total, item) => {
-        return total + (item.amount ?? 0);
-      }, 0),
-    [fixedExpenseCommitments],
-  );
-
-  const fixedIncomeTotal = useMemo(
-    () =>
-      fixedIncomeCommitments.reduce((total, item) => {
-        return total + (item.amount ?? 0);
-      }, 0),
-    [fixedIncomeCommitments],
-  );
-
-  const summaryIncomeTotal = monthSummary.income + fixedIncomeTotal;
-  const summaryExpenseTotal = monthSummary.expense + commitmentsTotal;
-  const summaryBalance = summaryIncomeTotal - summaryExpenseTotal;
-
-  const incomeItems = useMemo(
-    () => monthItems.filter((item) => item.direction === "income"),
-    [monthItems],
-  );
-
-  const variableExpenseItems = useMemo(
-    () => monthItems.filter((item) => item.direction === "expense" && item.category !== "conectividade fixa" && item.category !== "moradia fixa"),
-    [monthItems],
-  );
-
-  const fixedExpensePayments = useMemo(
-    () => monthItems.filter((item) => item.direction === "expense" && (item.category === "conectividade fixa" || item.category === "moradia fixa")),
-    [monthItems],
-  );
+      {
+        key: "real-income",
+        label: "Entradas reais",
+        value: metrics.realIncome,
+        tone: "income",
+        surface: "real",
+      },
+      {
+        key: "estimated-expense",
+        label: "Saídas estimadas",
+        value: metrics.estimatedExpense,
+        tone: "expense",
+        surface: "estimated",
+      },
+      {
+        key: "real-expense",
+        label: "Saídas reais",
+        value: metrics.realExpense,
+        tone: "expense",
+        surface: "real",
+      },
+      {
+        key: "estimated-balance",
+        label: "Saldo estimado",
+        value: metrics.estimatedBalance,
+        tone: metrics.estimatedBalance >= 0 ? "income" : "expense",
+        surface: "estimated",
+      },
+      {
+        key: "real-balance",
+        label: "Saldo real",
+        value: metrics.realBalance,
+        tone: metrics.realBalance >= 0 ? "income" : "expense",
+        surface: "real",
+      },
+    ];
+  }, [metrics]);
 
   if (!parsed) {
     return (
@@ -283,34 +283,47 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
     <main className="app-main">
       <div className="shell shell--narrow">
         <section className="month-sheet-hero">
-          <div>
+          <div className="hero-copy-block">
             <p className="eyebrow">Resumo mensal</p>
-            <h1>{formatMonthTitle(parsed.year, parsed.month)}</h1>
-            <p className="hero-balance-label">Saldo projetado</p>
+            <h1>{data?.month?.title ?? monthKey}</h1>
+          </div>
+          <div className="hero-balance-block">
+            <p className="hero-balance-label">Saldo real do mês</p>
             <strong className="hero-balance-value">
-              {formatCurrency(summaryBalance)}
+              {formatCurrency(metrics?.realBalance ?? 0)}
             </strong>
           </div>
         </section>
 
-        <section className="month-sheet-summary">
-          <article className="extract-summary__card extract-summary__card--sheet">
-            <span className="mini-label extract-summary__label">Entradas</span>
-            <strong className="extract-amount extract-amount--income">
-              {formatCurrency(summaryIncomeTotal)}
-            </strong>
-          </article>
-          <article className="extract-summary__card extract-summary__card--sheet">
-            <span className="mini-label extract-summary__label">Saídas</span>
-            <strong className="extract-amount extract-amount--expense">
-              {formatCurrency(summaryExpenseTotal)}
-            </strong>
-          </article>
-          <article className="extract-summary__card extract-summary__card--sheet">
-            <span className="mini-label extract-summary__label">Saldo</span>
-            <strong>{formatCurrency(summaryBalance)}</strong>
-          </article>
-        </section>
+        {topCards.length > 0 ? (
+          <section className="month-sheet-summary month-sheet-summary--expanded">
+            {topCards.map((card) => (
+              <article
+                key={card.key}
+                className={`extract-summary__card extract-summary__card--sheet ${
+                  card.surface === "real"
+                    ? "extract-summary__card--real"
+                    : "extract-summary__card--estimated"
+                }`}
+              >
+                <div className="extract-summary__card-content">
+                  <span className="mini-label extract-summary__label">{card.label}</span>
+                </div>
+                <div className="extract-summary__card-value">
+                  <strong
+                    className={`extract-amount ${
+                      card.tone === "income"
+                        ? "extract-amount--income"
+                        : "extract-amount--expense"
+                    }`}
+                  >
+                    {formatCurrency(card.value)}
+                  </strong>
+                </div>
+              </article>
+            ))}
+          </section>
+        ) : null}
 
         {loading ? (
           <section className="conversation-panel">
@@ -324,8 +337,43 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
           </section>
         ) : null}
 
-        {!loading && !errorMessage ? (
+        {!loading && !errorMessage && data ? (
           <section className="month-sheet-layout">
+            <section className="month-sheet-section">
+              <div className="month-sheet-section__header">
+                <div>
+                  <p className="eyebrow">Leitura</p>
+                  <h2>Execução do mês</h2>
+                </div>
+                <strong>
+                  {counts?.fixedPaid ?? 0}/{counts?.fixedTotal ?? 0}
+                </strong>
+              </div>
+              <div className="month-sheet-progress-grid">
+                <article className="month-sheet-progress-card">
+                  <span className="mini-label">Fixos pagos</span>
+                  <strong>{counts?.fixedPaid ?? 0}</strong>
+                  <p className="month-sheet-progress-value">
+                    {formatCurrency(counts?.fixedPaidAmount ?? 0)}
+                  </p>
+                </article>
+                <article className="month-sheet-progress-card">
+                  <span className="mini-label">No prazo</span>
+                  <strong>{counts?.fixedOpen ?? 0}</strong>
+                  <p className="month-sheet-progress-value">
+                    {formatCurrency(counts?.fixedOpenAmount ?? 0)}
+                  </p>
+                </article>
+                <article className="month-sheet-progress-card month-sheet-progress-card--alert">
+                  <span className="mini-label">Atrasados</span>
+                  <strong>{counts?.fixedOverdue ?? 0}</strong>
+                  <p className="month-sheet-progress-value">
+                    {formatCurrency(counts?.fixedOverdueAmount ?? 0)}
+                  </p>
+                </article>
+              </div>
+            </section>
+
             <section className="month-sheet-section">
               <div className="month-sheet-section__header">
                 <div>
@@ -333,19 +381,17 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
                   <h2>Receitas do mês</h2>
                 </div>
                 <strong className="extract-amount extract-amount--income">
-                  {formatCurrency(summaryIncomeTotal)}
+                  {formatCurrency(metrics?.realIncome ?? 0)}
                 </strong>
               </div>
 
-              {incomeItems.length === 0 && fixedIncomeCommitments.length === 0 ? (
+              {incomeTransactions.length === 0 && fixedIncomes.length === 0 ? (
                 <div className="month-sheet-empty">
                   <p>Nenhuma entrada registrada neste mês.</p>
                 </div>
-              ) : null}
-
-              {incomeItems.length > 0 ? (
+              ) : (
                 <div className="month-sheet-list">
-                  {incomeItems.map((item) => (
+                  {incomeTransactions.map((item) => (
                     <article key={item.id} className="month-sheet-row month-sheet-row--commitment">
                       <div className="month-sheet-date-chip month-sheet-date-chip--income" aria-hidden="true">
                         <strong>{String(getLocalDayOfMonth(item.created_at, timeZone)).padStart(2, "0")}</strong>
@@ -358,26 +404,35 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
                       </strong>
                     </article>
                   ))}
-                </div>
-              ) : null}
 
-              {fixedIncomeCommitments.length > 0 ? (
-                <div className="month-sheet-list">
-                  {fixedIncomeCommitments.map((item) => (
-                    <article key={item.id} className="month-sheet-row month-sheet-row--linked month-sheet-row--commitment">
+                  {fixedIncomes.map((item) => (
+                    <article key={item.id} className="month-sheet-row month-sheet-row--commitment">
                       <div className="month-sheet-date-chip month-sheet-date-chip--income" aria-hidden="true">
-                        <strong>{String(getLocalDayOfMonth(item.created_at, timeZone)).padStart(2, "0")}</strong>
+                        <strong>
+                          {item.dayOfMonth !== null
+                            ? String(item.dayOfMonth).padStart(2, "0")
+                            : "--"}
+                        </strong>
                       </div>
                       <div className="month-sheet-row__content">
                         <strong>{formatDisplayText(item.title)}</strong>
+                        <div className="month-sheet-row__meta">
+                          <span className={getStatusClass(item)}>{getStatusLabel(item)}</span>
+                        </div>
                       </div>
-                      <strong className="extract-amount extract-amount--income">
-                        {formatCurrency(item.amount ?? 0)}
+                      <strong
+                        className={
+                          item.status === "confirmed"
+                            ? "extract-amount extract-amount--income"
+                            : "extract-amount"
+                        }
+                      >
+                        {formatCurrency(item.amount)}
                       </strong>
                     </article>
                   ))}
                 </div>
-              ) : null}
+              )}
             </section>
 
             <section className="month-sheet-section">
@@ -387,57 +442,43 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
                   <h2>Gastos fixos</h2>
                 </div>
                 <strong className="extract-amount extract-amount--expense">
-                  {formatCurrency(commitmentsTotal)}
+                  {formatCurrency(metrics?.fixedExpenseEstimated ?? 0)}
                 </strong>
               </div>
 
-              {fixedExpenseCommitments.length === 0 ? (
+              {fixedExpenses.length === 0 ? (
                 <div className="month-sheet-empty">
                   <strong>Nenhum gasto fixo conectado ainda.</strong>
-                  <p>
-                    Quando você cadastrar contratos e contas recorrentes por voz, eles vão aparecer aqui
-                    com valor e previsão mensal.
-                  </p>
+                  <p>Quando você cadastrar contas recorrentes, elas aparecem aqui com status do mês.</p>
                 </div>
               ) : (
                 <div className="month-sheet-list">
-                  {fixedExpenseCommitments.map((item) => (
-                    <article key={item.id} className="month-sheet-row month-sheet-row--commitment">
+                  {fixedExpenses.map((item) => (
+                    <article
+                      key={item.id}
+                      className={`month-sheet-row month-sheet-row--commitment month-sheet-row--status-${item.status}`}
+                    >
                       <div className="month-sheet-date-chip" aria-hidden="true">
                         <strong>
-                          {item.day_of_month !== null
-                            ? String(item.day_of_month).padStart(2, "0")
+                          {item.dayOfMonth !== null
+                            ? String(item.dayOfMonth).padStart(2, "0")
                             : "--"}
                         </strong>
                       </div>
                       <div className="month-sheet-row__content">
                         <strong>{formatDisplayText(item.title)}</strong>
+                        <div className="month-sheet-row__meta">
+                          <span className={getStatusClass(item)}>{getStatusLabel(item)}</span>
+                        </div>
                       </div>
-                      <strong className="extract-amount extract-amount--expense">
-                        {formatCurrency(item.amount ?? 0)}
-                      </strong>
-                    </article>
-                  ))}
-
-                  {fixedExpensePayments.map((item) => (
-                    <article key={item.id} className="month-sheet-row month-sheet-row--linked month-sheet-row--commitment">
-                      <div className="month-sheet-date-chip" aria-hidden="true">
-                        <strong>{String(getLocalDayOfMonth(item.created_at, timeZone)).padStart(2, "0")}</strong>
-                      </div>
-                      <div className="month-sheet-row__content">
-                        <strong>Pagamento vinculado • {formatDisplayText(item.description)}</strong>
-                        <p>
-                          {formatDisplayText(item.category ?? "gasto fixo")} • {formatDateTimeInZone(item.created_at, timeZone, {
-                            day: "2-digit",
-                            month: "long",
-                          })} • {formatDateTimeInZone(item.created_at, timeZone, {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
-                      </div>
-                      <strong className="extract-amount extract-amount--expense">
-                        {formatCurrency(item.amount ?? 0)}
+                      <strong
+                        className={
+                          item.status === "paid"
+                            ? "extract-amount extract-amount--income"
+                            : "extract-amount extract-amount--expense"
+                        }
+                      >
+                        {formatCurrency(item.amount)}
                       </strong>
                     </article>
                   ))}
@@ -452,17 +493,17 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
                   <h2>Despesas variáveis</h2>
                 </div>
                 <strong className="extract-amount extract-amount--expense">
-                  {formatCurrency(monthSummary.expense)}
+                  {formatCurrency(metrics?.variableReal ?? 0)}
                 </strong>
               </div>
 
-              {variableExpenseItems.length === 0 ? (
+              {variableExpenses.length === 0 ? (
                 <div className="month-sheet-empty">
                   <p>Nenhum gasto variável registrado neste mês.</p>
                 </div>
               ) : (
                 <div className="month-sheet-list month-sheet-list--clean">
-                  {variableExpenseItems.map((item) => (
+                  {variableExpenses.map((item) => (
                     <article key={item.id} className="month-sheet-row month-sheet-row--clean">
                       <div className="month-sheet-date-chip" aria-hidden="true">
                         <strong>{String(getLocalDayOfMonth(item.created_at, timeZone)).padStart(2, "0")}</strong>
@@ -474,7 +515,9 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
                             {formatDateTimeInZone(item.created_at, timeZone, {
                               day: "2-digit",
                               month: "long",
-                            })} • {formatDateTimeInZone(item.created_at, timeZone, {
+                            })}{" "}
+                            •{" "}
+                            {formatDateTimeInZone(item.created_at, timeZone, {
                               hour: "2-digit",
                               minute: "2-digit",
                             })}
@@ -489,7 +532,6 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
                 </div>
               )}
             </section>
-
           </section>
         ) : null}
       </div>

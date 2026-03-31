@@ -42,7 +42,7 @@ function AuthSplash() {
 }
 
 function LoginScreen() {
-  const { signInWithGoogle } = useAuth();
+  const { signInWithGoogle, authError, signingIn } = useAuth();
 
   return (
     <main className="app-main app-main--home auth-shell">
@@ -54,12 +54,18 @@ function LoginScreen() {
           <p className="auth-copy">
             Seus lançamentos, fixos e lembretes ficam disponíveis só depois do login.
           </p>
-          <button type="button" className="auth-google-button" onClick={() => void signInWithGoogle()}>
+          <button
+            type="button"
+            className="auth-google-button"
+            onClick={() => void signInWithGoogle()}
+            disabled={signingIn}
+          >
             <span className="auth-google-button__icon">
               <GoogleIcon />
             </span>
-            <span>Continuar com Google</span>
+            <span>{signingIn ? "Abrindo Google..." : "Continuar com Google"}</span>
           </button>
+          {authError ? <p className="auth-error">{authError}</p> : null}
         </section>
       </div>
     </main>

@@ -145,7 +145,7 @@ export function ExtractView() {
     <main className="app-main">
       <div className="shell shell--narrow">
         <section className="extract-hero">
-          <div>
+          <div className="hero-copy-block">
             <p className="eyebrow">Extrato</p>
             <h1>
               {formatDateTimeInZone(new Date(), timeZone, {
@@ -153,6 +153,8 @@ export function ExtractView() {
                 year: "numeric",
               })}
             </h1>
+          </div>
+          <div className="hero-balance-block">
             <p className="hero-balance-label">Saldo do mês</p>
             <strong className="hero-balance-value">
               {formatCurrency(monthSummary.income - monthSummary.expense)}

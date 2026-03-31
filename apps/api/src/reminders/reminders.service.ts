@@ -23,6 +23,18 @@ type CommitmentItem = {
   direction: "expense" | "income";
 };
 
+type CommitmentDueStatus =
+  | {
+      kind: "due_today";
+      dueDate: string;
+      overdueDays: 0;
+    }
+  | {
+      kind: "overdue";
+      dueDate: string;
+      overdueDays: number;
+    };
+
 @Injectable()
 export class RemindersService {
   private readonly logger = new Logger(RemindersService.name);
@@ -291,10 +303,26 @@ export class RemindersService {
       };
     }
 
-    const dueToday = (commitments ?? []).filter((item) =>
-      this.isCommitmentDueToday(item as CommitmentItem, today),
-    )
-      .filter((item) => item.user_id) as CommitmentItem[];
+    const dueItems = (commitments ?? [])
+      .map((item) => {
+        const dueStatus = this.resolveCommitmentDueStatus(
+          item as CommitmentItem,
+          today,
+        );
+
+        if (!dueStatus || !item.user_id) {
+          return null;
+        }
+
+        return {
+          commitment: item as CommitmentItem,
+          dueStatus,
+        };
+      })
+      .filter(Boolean) as Array<{
+      commitment: CommitmentItem;
+      dueStatus: CommitmentDueStatus;
+    }>;
 
     const subscriptionsByUser = new Map<string, StoredPushSubscription[]>();
 
@@ -308,12 +336,14 @@ export class RemindersService {
       subscriptionsByUser.set(subscription.user_id, current);
     }
 
-    if (dueToday.length === 0 || subscriptionsByUser.size === 0) {
+    if (dueItems.length === 0 || subscriptionsByUser.size === 0) {
       return {
         sent: 0,
         failed: 0,
         provider: "supabase" as const,
-        dueToday: dueToday.length,
+        dueToday: 0,
+        overdue: 0,
+        eligible: dueItems.length,
         subscriptions: (subscriptions ?? []).length,
       };
     }
@@ -321,19 +351,19 @@ export class RemindersService {
     let sent = 0;
     let failed = 0;
 
-    for (const commitment of dueToday) {
-      const userSubscriptions = subscriptionsByUser.get(commitment.user_id ?? "");
+    for (const item of dueItems) {
+      const userSubscriptions = subscriptionsByUser.get(item.commitment.user_id ?? "");
 
       if (!userSubscriptions?.length) {
         continue;
       }
 
       const scheduledFor = this.toSaoPauloMiddayIso(today.year, today.month, today.day);
-      const payload = this.buildCommitmentPayload(commitment);
+      const payload = this.buildCommitmentPayload(item.commitment, item.dueStatus);
       const reminderId = await this.ensureReminder(
         admin,
-        commitment.id,
-        commitment.user_id ?? null,
+        item.commitment.id,
+        item.commitment.user_id ?? null,
         scheduledFor,
         payload,
       );
@@ -393,7 +423,9 @@ export class RemindersService {
       sent,
       failed,
       provider: "supabase" as const,
-      dueToday: dueToday.length,
+      dueToday: dueItems.filter((item) => item.dueStatus.kind === "due_today").length,
+      overdue: dueItems.filter((item) => item.dueStatus.kind === "overdue").length,
+      eligible: dueItems.length,
       subscriptions: subscriptions.length,
     };
   }
@@ -440,40 +472,102 @@ export class RemindersService {
     return data.id;
   }
 
-  private buildCommitmentPayload(commitment: CommitmentItem) {
+  private buildCommitmentPayload(
+    commitment: CommitmentItem,
+    dueStatus: CommitmentDueStatus,
+  ) {
     const title = this.toPrettyTitle(commitment.title);
     const amount = typeof commitment.amount === "number"
       ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(commitment.amount)
       : null;
+    const statusTitle =
+      dueStatus.kind === "due_today"
+        ? `${title} vence hoje`
+        : `${title} está vencido`;
+    const statusBody =
+      dueStatus.kind === "due_today"
+        ? amount
+          ? `${title} • ${amount}`
+          : title
+        : amount
+          ? `${title} está vencido há ${dueStatus.overdueDays} ${dueStatus.overdueDays === 1 ? "dia" : "dias"} • ${amount}`
+          : `${title} está vencido há ${dueStatus.overdueDays} ${dueStatus.overdueDays === 1 ? "dia" : "dias"}`;
 
     return {
-      title: `${title} vence hoje`,
-      body: amount ? `${title} • ${amount}` : title,
+      title: statusTitle,
+      body: statusBody,
       tag: `commitment-${commitment.id}`,
       data: {
         url: "/summary",
         commitmentId: commitment.id,
+        dueDate: dueStatus.dueDate,
+        dueStatus: dueStatus.kind,
+        overdueDays: dueStatus.overdueDays,
       },
     };
   }
 
-  private isCommitmentDueToday(
+  private resolveCommitmentDueStatus(
     commitment: CommitmentItem,
     today: { year: number; month: number; day: number; isoDate: string },
-  ) {
+  ): CommitmentDueStatus | null {
     if (commitment.direction !== "expense") {
-      return false;
+      return null;
     }
 
     if (commitment.starts_on && commitment.starts_on > today.isoDate) {
-      return false;
+      return null;
     }
 
     if (commitment.ends_on && commitment.ends_on < today.isoDate) {
-      return false;
+      return null;
     }
 
-    return commitment.day_of_month === today.day;
+    if (!commitment.day_of_month) {
+      return null;
+    }
+
+    const todayDate = new Date(today.year, today.month - 1, today.day);
+    const candidateDates = [
+      new Date(today.year, today.month - 1, commitment.day_of_month),
+      new Date(today.year, today.month - 2, commitment.day_of_month),
+    ];
+
+    for (const candidate of candidateDates) {
+      const dueDate = `${String(candidate.getFullYear()).padStart(4, "0")}-${String(candidate.getMonth() + 1).padStart(2, "0")}-${String(candidate.getDate()).padStart(2, "0")}`;
+
+      if (commitment.starts_on && dueDate < commitment.starts_on) {
+        continue;
+      }
+
+      if (commitment.ends_on && dueDate > commitment.ends_on) {
+        continue;
+      }
+
+      const diffDays = Math.floor(
+        (todayDate.getTime() - candidate.getTime()) / (1000 * 60 * 60 * 24),
+      );
+
+      if (diffDays < 0 || diffDays > 5) {
+        continue;
+      }
+
+      if (diffDays === 0) {
+        return {
+          kind: "due_today",
+          dueDate,
+          overdueDays: 0,
+        };
+      }
+
+      return {
+        kind: "overdue",
+        dueDate,
+        overdueDays: diffDays,
+      };
+    }
+
+    return null;
   }
 
   private getSaoPauloDateParts() {

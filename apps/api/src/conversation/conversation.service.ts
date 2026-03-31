@@ -1088,6 +1088,22 @@ export class ConversationService {
     );
   }
 
+  private hasIncomeSignal(input: string) {
+    return (
+      input.includes("recebi") ||
+      input.includes("receber") ||
+      input.includes("entrou") ||
+      input.includes("caiu") ||
+      input.includes("pingou") ||
+      input.includes("creditou") ||
+      input.includes("me pagaram") ||
+      input.includes("cliente me pagou") ||
+      input.includes("confirmar entrada") ||
+      input.includes("confirma entrada") ||
+      input.includes("confirma a entrada")
+    );
+  }
+
   private resolveCommitmentLookupDescription(description: string) {
     const normalizedDescription = this.normalizeText(description);
     const classified = classifyByTaxonomy(
@@ -1105,6 +1121,8 @@ export class ConversationService {
     startMonthReference: "current" | "next" | null,
     startMonth: number | null,
     startYear: number | null,
+    endMonth: number | null,
+    endYear: number | null,
   ) {
     const now = new Date();
     let startDate: Date | null = null;
@@ -1128,14 +1146,112 @@ export class ConversationService {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
     }
 
-    const endDate = durationMonths
-      ? new Date(startDate.getFullYear(), startDate.getMonth() + durationMonths, 0)
-      : null;
+    const endDate =
+      endMonth !== null && endYear !== null
+        ? new Date(endYear, endMonth, 0)
+        : durationMonths
+          ? new Date(startDate.getFullYear(), startDate.getMonth() + durationMonths, 0)
+          : null;
 
     return {
       startsOn: startDate.toISOString().slice(0, 10),
       endsOn: endDate ? endDate.toISOString().slice(0, 10) : null,
     };
+  }
+
+  private buildOccurrenceDueOn(
+    dayOfMonth: number | null,
+    startsOn: string | null,
+    referenceDate = new Date(),
+  ) {
+    const year = referenceDate.getFullYear();
+    const month = referenceDate.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const fallbackDay = startsOn ? Number(startsOn.slice(-2)) || 1 : 1;
+    const resolvedDay = Math.min(dayOfMonth ?? fallbackDay, daysInMonth);
+
+    return `${year}-${String(month + 1).padStart(2, "0")}-${String(resolvedDay).padStart(2, "0")}`;
+  }
+
+  private async markCommitmentOccurrencePaid(
+    commitment: {
+      id: string;
+      day_of_month?: number | null;
+      starts_on?: string | null;
+    },
+    transactionId: string | null,
+  ) {
+    const admin = this.supabaseService.admin;
+
+    if (!admin) {
+      return;
+    }
+
+    const dueOn = this.buildOccurrenceDueOn(
+      commitment.day_of_month ?? null,
+      commitment.starts_on ?? null,
+    );
+
+    const { data: existing } = await admin
+      .from("commitment_occurrences")
+      .select("id")
+      .eq("commitment_id", commitment.id)
+      .eq("due_on", dueOn)
+      .maybeSingle();
+
+    if (existing?.id) {
+      await admin
+        .from("commitment_occurrences")
+        .update({
+          status: "paid",
+          transaction_id: transactionId,
+        })
+        .eq("id", existing.id);
+      return;
+    }
+
+    await admin.from("commitment_occurrences").insert({
+      commitment_id: commitment.id,
+      due_on: dueOn,
+      status: "paid",
+      transaction_id: transactionId,
+    });
+  }
+
+  private async findExactCommitmentByDescription(
+    userId: string,
+    direction: "expense" | "income",
+    description: string,
+  ) {
+    const admin = this.supabaseService.admin;
+
+    if (!admin) {
+      return null;
+    }
+
+    const normalizedDescription = this.resolveCommitmentLookupDescription(description);
+    const { data } = await admin
+      .from("commitments")
+      .select("id, title, amount, direction, day_of_month, starts_on")
+      .eq("user_id", userId)
+      .eq("direction", direction)
+      .order("created_at", { ascending: false })
+      .limit(40);
+
+    const match = (data ?? []).find(
+      (item) => this.normalizeText(item.title as string) === normalizedDescription,
+    );
+
+    return match
+      ? {
+          id: match.id as string,
+          title: match.title as string,
+          amount: match.amount as number | null,
+          direction: match.direction as "expense" | "income",
+          day_of_month: (match.day_of_month as number | null) ?? null,
+          starts_on: (match.starts_on as string | null) ?? null,
+        }
+      : null;
   }
 
   private commitmentIsRelevantForRange(
@@ -1265,6 +1381,7 @@ export class ConversationService {
     }
 
     if (parsed.intent === "transaction" && parsed.description) {
+      const normalizedRawText = this.normalizeText(dto.text);
       const { data: transaction, error: transactionError } = await admin
         .from("transactions")
         .insert({
@@ -1288,6 +1405,36 @@ export class ConversationService {
           recordId: null,
           reason: transactionError.message,
         };
+      }
+
+      if (parsed.direction === "expense" && this.hasExpenseSettlementSignal(normalizedRawText)) {
+        const matchedCommitment = await this.findExactCommitmentByDescription(
+          userId,
+          "expense",
+          parsed.description,
+        );
+
+        if (matchedCommitment) {
+          await this.markCommitmentOccurrencePaid(
+            matchedCommitment,
+            transaction?.id ?? null,
+          );
+        }
+      }
+
+      if (parsed.direction === "income" && this.hasIncomeSignal(normalizedRawText)) {
+        const matchedCommitment = await this.findExactCommitmentByDescription(
+          userId,
+          "income",
+          parsed.description,
+        );
+
+        if (matchedCommitment) {
+          await this.markCommitmentOccurrencePaid(
+            matchedCommitment,
+            transaction?.id ?? null,
+          );
+        }
       }
 
       return {
@@ -1384,7 +1531,7 @@ export class ConversationService {
         );
         const { data: existingCommitments } = await admin
           .from("commitments")
-          .select("id, title, amount")
+          .select("id, title, amount, day_of_month, starts_on")
           .eq("user_id", userId)
           .order("created_at", { ascending: false })
           .limit(30);
@@ -1394,6 +1541,8 @@ export class ConversationService {
             id: item.id as string,
             title: item.title as string,
             amount: item.amount as number | null,
+            day_of_month: (item.day_of_month as number | null) ?? null,
+            starts_on: (item.starts_on as string | null) ?? null,
             normalizedTitle: this.normalizeText(item.title as string),
           })) ?? [];
 
@@ -1432,6 +1581,11 @@ export class ConversationService {
             };
           }
 
+          await this.markCommitmentOccurrencePaid(
+            matchedCommitment,
+            transaction?.id ?? null,
+          );
+
           return {
             saved: true,
             provider: "supabase",
@@ -1452,6 +1606,74 @@ export class ConversationService {
           };
         }
       }
+
+      if (
+        parsed.direction === "income" &&
+        parsed.amount === null &&
+        this.hasIncomeSignal(normalizedRawText)
+      ) {
+        const normalizedParsedDescription = this.resolveCommitmentLookupDescription(
+          parsed.description,
+        );
+        const { data: existingCommitments } = await admin
+          .from("commitments")
+          .select("id, title, amount, day_of_month, starts_on")
+          .eq("user_id", userId)
+          .eq("direction", "income")
+          .order("created_at", { ascending: false })
+          .limit(30);
+
+        const exactExistingCommitment = (existingCommitments ?? [])
+          .map((item) => ({
+            id: item.id as string,
+            title: item.title as string,
+            amount: item.amount as number | null,
+            day_of_month: (item.day_of_month as number | null) ?? null,
+            starts_on: (item.starts_on as string | null) ?? null,
+            normalizedTitle: this.normalizeText(item.title as string),
+          }))
+          .find((item) => item.normalizedTitle === normalizedParsedDescription);
+
+        if (exactExistingCommitment && exactExistingCommitment.amount !== null) {
+          const { data: transaction, error: transactionError } = await admin
+            .from("transactions")
+            .insert({
+              user_id: userId,
+              conversation_id: conversation.id,
+              direction: "income",
+              description: exactExistingCommitment.title,
+              amount: exactExistingCommitment.amount,
+              category: parsed.category ?? exactExistingCommitment.title,
+              source: dto.audioAssetPath ? "voice" : "text",
+            })
+            .select("id")
+            .single();
+
+          if (transactionError) {
+            return {
+              saved: false,
+              provider: "supabase",
+              conversationId: conversation.id,
+              recordId: null,
+              reason: transactionError.message,
+            };
+          }
+
+          await this.markCommitmentOccurrencePaid(
+            exactExistingCommitment,
+            transaction?.id ?? null,
+          );
+
+          return {
+            saved: true,
+            provider: "supabase",
+            conversationId: conversation.id,
+            recordId: transaction?.id ?? null,
+            reason: "fixed_income_inferred",
+            assistantMessage: "Pronto. Confirmei essa entrada fixa.",
+          };
+        }
+      }
     }
 
     if (parsed.intent === "commitment" && parsed.description) {
@@ -1466,6 +1688,8 @@ export class ConversationService {
         parsed.startMonthReference,
         parsed.startMonth,
         parsed.startYear,
+        parsed.endMonth,
+        parsed.endYear,
       );
       const { data: existingCommitments, error: existingCommitmentsError } = await admin
         .from("commitments")

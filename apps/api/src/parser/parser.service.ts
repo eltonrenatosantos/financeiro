@@ -27,6 +27,23 @@ export class ParserService {
     novembro: 11,
     dezembro: 12,
   };
+  private readonly numberWordMap: Record<string, number> = {
+    um: 1,
+    uma: 1,
+    dois: 2,
+    duas: 2,
+    tres: 3,
+    três: 3,
+    quatro: 4,
+    cinco: 5,
+    seis: 6,
+    sete: 7,
+    oito: 8,
+    nove: 9,
+    dez: 10,
+    onze: 11,
+    doze: 12,
+  };
 
   parse(dto: ParseInputDto): ParsedConversationResult {
     const rawText = dto.text.trim();
@@ -37,6 +54,7 @@ export class ParserService {
     const durationMonths = this.extractDurationMonths(normalizedText);
     const startMonthReference = this.extractStartMonthReference(normalizedText);
     const explicitStartMonth = this.extractExplicitStartMonth(normalizedText);
+    const explicitMonthRange = this.extractExplicitMonthRange(normalizedText);
     const hasRecurringSignal = this.hasRecurringCommitmentSignal(normalizedText);
     const amount = isCorrection
       ? this.extractCorrectionAmount(normalizedText)
@@ -112,6 +130,13 @@ export class ParserService {
       entities.push({ key: "startYear", value: explicitStartMonth.year });
     }
 
+    if (explicitMonthRange) {
+      entities.push({ key: "startMonth", value: explicitMonthRange.startMonth });
+      entities.push({ key: "startYear", value: explicitMonthRange.startYear });
+      entities.push({ key: "endMonth", value: explicitMonthRange.endMonth });
+      entities.push({ key: "endYear", value: explicitMonthRange.endYear });
+    }
+
     if (timeReference) {
       entities.push({ key: "timeReference", value: timeReference });
     }
@@ -150,8 +175,10 @@ export class ParserService {
       recurrence,
       durationMonths,
       startMonthReference,
-      startMonth: explicitStartMonth?.month ?? null,
-      startYear: explicitStartMonth?.year ?? null,
+      startMonth: explicitMonthRange?.startMonth ?? explicitStartMonth?.month ?? null,
+      startYear: explicitMonthRange?.startYear ?? explicitStartMonth?.year ?? null,
+      endMonth: explicitMonthRange?.endMonth ?? null,
+      endYear: explicitMonthRange?.endYear ?? null,
       timeReference,
       dueDay,
       counterparty,
@@ -252,6 +279,14 @@ export class ParserService {
     return (
       input.includes("entrada fixa") ||
       input.includes("receita fixa") ||
+      input.includes("prolabore") ||
+      input.includes("pro labore") ||
+      input.includes("pro-labore") ||
+      input.includes("freelance") ||
+      input.includes("freela") ||
+      input.includes("freelancer") ||
+      input.includes("salario") ||
+      input.includes("salário") ||
       input.includes("salario fixo") ||
       input.includes("salario mensal") ||
       input.includes("recebimento fixo") ||
@@ -293,10 +328,22 @@ export class ParserService {
       input.includes("óculos") ||
       input.includes("transporte escolar") ||
       input.includes("van escolar") ||
-      input.includes("perua escolar");
+      input.includes("perua escolar") ||
+      input.includes("prolabore") ||
+      input.includes("pro labore") ||
+      input.includes("pro-labore") ||
+      input.includes("salario") ||
+      input.includes("salário") ||
+      input.includes("freelance") ||
+      input.includes("freela") ||
+      input.includes("freelancer");
 
     return (
       input.includes("gasto fixo") ||
+      input.includes("compromisso fixo") ||
+      input.includes("conta fixa") ||
+      input.includes("divida fixa") ||
+      input.includes("dívida fixa") ||
       input.includes("fixo") ||
       input.includes("contrato") ||
       input.includes("todo dia") ||
@@ -347,16 +394,24 @@ export class ParserService {
   }
 
   private extractDurationMonths(input: string): number | null {
-    const match = input.match(
-      /\b(?:por|durante)\s+(\d{1,2})\s+(?:mes|meses)\b/,
+    const digitMatch = input.match(
+      /\b(?:por|durante|de)\s+(\d{1,2})\s+(?:mes|meses)\b/,
     );
 
-    if (!match) {
+    if (digitMatch) {
+      const parsedValue = Number(digitMatch[1]);
+      return Number.isNaN(parsedValue) || parsedValue < 1 ? null : parsedValue;
+    }
+
+    const wordMatch = input.match(
+      /\b(?:por|durante|de)\s+(um|uma|dois|duas|tres|três|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+(?:mes|meses)\b/,
+    );
+
+    if (!wordMatch) {
       return null;
     }
 
-    const parsedValue = Number(match[1]);
-    return Number.isNaN(parsedValue) || parsedValue < 1 ? null : parsedValue;
+    return this.numberWordMap[wordMatch[1]] ?? null;
   }
 
   private extractStartMonthReference(input: string): "current" | "next" | null {
@@ -383,7 +438,7 @@ export class ParserService {
 
   private extractExplicitStartMonth(input: string): { month: number; year: number } | null {
     const match = input.match(
-      /a partir de\s+([a-zç]+)(?:\s+de\s+(\d{4}))?/,
+      /(?:a partir de|comeca em|comeca no mes de|começa em|começa no mês de)\s+([a-zç]+)(?:\s+de\s+(\d{4}))?/,
     );
 
     if (!match) {
@@ -404,6 +459,44 @@ export class ParserService {
     }
 
     return { month, year };
+  }
+
+  private extractExplicitMonthRange(
+    input: string,
+  ): { startMonth: number; startYear: number; endMonth: number; endYear: number } | null {
+    const match = input.match(
+      /d[oe]\s+(?:mes\s+de\s+)?([a-zç]+)(?:\s+de\s+(\d{4}))?\s+ate\s+(?:o\s+)?(?:mes\s+de\s+)?([a-zç]+)(?:\s+de\s+(\d{4}))?/,
+    );
+
+    if (!match) {
+      return null;
+    }
+
+    const startMonth = this.monthMap[match[1]];
+    const endMonth = this.monthMap[match[3]];
+
+    if (!startMonth || !endMonth) {
+      return null;
+    }
+
+    const currentYear = new Date().getFullYear();
+    const startYear = match[2] ? Number(match[2]) : currentYear;
+    let endYear = match[4] ? Number(match[4]) : startYear;
+
+    if (Number.isNaN(startYear) || Number.isNaN(endYear)) {
+      return null;
+    }
+
+    if (!match[4] && endMonth < startMonth) {
+      endYear += 1;
+    }
+
+    return {
+      startMonth,
+      startYear,
+      endMonth,
+      endYear,
+    };
   }
 
   private extractAmount(input: string, ignoredValue?: number | null): number | null {
@@ -589,6 +682,11 @@ export class ParserService {
       /\btenho\b/g,
       /\bum\b/g,
       /\buma\b/g,
+      /\bcompromisso fixo\b/g,
+      /\bcompromisso\b/g,
+      /\bconta fixa\b/g,
+      /\bdivida fixa\b/g,
+      /\bdívida fixa\b/g,
       /\bgasto fixo\b/g,
       /\bfixo\b/g,
       /\bfixos\b/g,
