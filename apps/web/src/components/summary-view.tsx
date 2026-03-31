@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { FINANCE_DATA_UPDATED_EVENT } from "./data-sync";
 import { getLocalYearMonth, resolveUserTimeZone } from "./date-time";
+import { authenticatedFetch } from "../lib/api";
 
 type TransactionItem = {
   id: string;
@@ -37,7 +38,7 @@ export function SummaryView() {
 
     async function loadSummary() {
       try {
-        const response = await fetch(`${apiBaseUrl}/api/transactions`, {
+        const response = await authenticatedFetch(`${apiBaseUrl}/api/transactions`, {
           cache: "no-store",
         });
 

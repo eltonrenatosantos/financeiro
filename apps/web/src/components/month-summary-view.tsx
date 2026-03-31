@@ -9,6 +9,7 @@ import {
   resolveUserTimeZone,
 } from "./date-time";
 import { formatDisplayText } from "./display-text";
+import { authenticatedFetch } from "../lib/api";
 
 type TransactionItem = {
   id: string;
@@ -113,10 +114,10 @@ export function MonthSummaryView({ monthKey }: { monthKey: string }) {
     async function loadMonth() {
       try {
         const [transactionsResponse, commitmentsResponse] = await Promise.all([
-          fetch(`${apiBaseUrl}/api/transactions`, {
+          authenticatedFetch(`${apiBaseUrl}/api/transactions`, {
             cache: "no-store",
           }),
-          fetch(`${apiBaseUrl}/api/commitments`, {
+          authenticatedFetch(`${apiBaseUrl}/api/commitments`, {
             cache: "no-store",
           }),
         ]);

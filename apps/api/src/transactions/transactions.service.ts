@@ -6,7 +6,7 @@ import { SupabaseService } from "../integrations/supabase/supabase.service";
 export class TransactionsService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
-  async list() {
+  async list(userId: string) {
     const admin = this.supabaseService.admin;
 
     if (!admin) {
@@ -21,6 +21,7 @@ export class TransactionsService {
     const { data, error } = await admin
       .from("transactions")
       .select("id, direction, description, amount, category, created_at")
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(60);
 

@@ -9,6 +9,7 @@ import {
 import { FINANCE_DATA_UPDATED_EVENT } from "./data-sync";
 import { formatDisplayText } from "./display-text";
 import { TransactionIcon } from "./transaction-icon";
+import { authenticatedFetch } from "../lib/api";
 
 type TransactionItem = {
   id: string;
@@ -53,7 +54,7 @@ export function ExtractView() {
 
     async function loadExtract() {
       try {
-        const response = await fetch(`${apiBaseUrl}/api/transactions`, {
+        const response = await authenticatedFetch(`${apiBaseUrl}/api/transactions`, {
           cache: "no-store",
         });
 

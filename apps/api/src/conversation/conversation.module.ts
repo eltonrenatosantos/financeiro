@@ -2,9 +2,10 @@ import { Module } from "@nestjs/common";
 import { ConversationController } from "./conversation.controller";
 import { ConversationService } from "./conversation.service";
 import { ParserModule } from "../parser/parser.module";
+import { AuthModule } from "../auth/auth.module";
 
 @Module({
-  imports: [ParserModule],
+  imports: [ParserModule, AuthModule],
   controllers: [ConversationController],
   providers: [ConversationService],
   exports: [ConversationService],

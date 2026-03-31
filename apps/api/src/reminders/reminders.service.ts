@@ -5,6 +5,7 @@ import { RegisterPushSubscriptionDto } from "./dto/register-push-subscription.dt
 import { SupabaseService } from "../integrations/supabase/supabase.service";
 
 type StoredPushSubscription = {
+  user_id: string | null;
   endpoint: string;
   p256dh: string;
   auth: string;
@@ -13,6 +14,7 @@ type StoredPushSubscription = {
 
 type CommitmentItem = {
   id: string;
+  user_id: string | null;
   title: string;
   amount: number | null;
   day_of_month: number | null;
@@ -47,7 +49,7 @@ export class RemindersService {
     this.logger.warn("Web push nao configurado. Configure as chaves VAPID para ativar notificacoes.");
   }
 
-  async list() {
+  async list(userId: string) {
     const admin = this.supabaseService.admin;
 
     if (!admin) {
@@ -64,11 +66,13 @@ export class RemindersService {
         admin
           .from("reminders")
           .select("id, related_entity_type, related_entity_id, channel, scheduled_for, status, payload, sent_at, created_at")
+          .eq("user_id", userId)
           .order("scheduled_for", { ascending: false })
           .limit(30),
         admin
           .from("push_subscriptions")
           .select("id", { count: "exact", head: true })
+          .eq("user_id", userId)
           .eq("active", true),
       ]);
 
@@ -89,7 +93,7 @@ export class RemindersService {
     };
   }
 
-  async create(dto: CreateReminderDto) {
+  async create(dto: CreateReminderDto, userId: string) {
     const admin = this.supabaseService.admin;
 
     if (!admin) {
@@ -113,7 +117,7 @@ export class RemindersService {
     const { data, error } = await admin
       .from("reminders")
       .insert({
-        user_id: null,
+        user_id: userId,
         related_entity_type: dto.relatedEntityType,
         related_entity_id: dto.relatedEntityId,
         channel: dto.channel ?? "push",
@@ -138,7 +142,7 @@ export class RemindersService {
     };
   }
 
-  async registerSubscription(dto: RegisterPushSubscriptionDto) {
+  async registerSubscription(dto: RegisterPushSubscriptionDto, userId: string) {
     const admin = this.supabaseService.admin;
 
     if (!admin) {
@@ -161,7 +165,7 @@ export class RemindersService {
       .from("push_subscriptions")
       .upsert(
         {
-          user_id: null,
+          user_id: userId,
           endpoint: dto.endpoint,
           p256dh: dto.keys.p256dh,
           auth: dto.keys.auth,
@@ -192,7 +196,7 @@ export class RemindersService {
     };
   }
 
-  async unregisterSubscription(endpoint: string) {
+  async unregisterSubscription(endpoint: string, userId: string) {
     const admin = this.supabaseService.admin;
 
     if (!admin) {
@@ -217,6 +221,7 @@ export class RemindersService {
         active: false,
         updated_at: new Date().toISOString(),
       })
+      .eq("user_id", userId)
       .eq("endpoint", endpoint);
 
     if (error) {
@@ -269,11 +274,11 @@ export class RemindersService {
       await Promise.all([
         admin
           .from("commitments")
-          .select("id, title, amount, day_of_month, starts_on, ends_on, direction")
+          .select("id, user_id, title, amount, day_of_month, starts_on, ends_on, direction")
           .eq("direction", "expense"),
         admin
           .from("push_subscriptions")
-          .select("endpoint, p256dh, auth, active")
+          .select("user_id, endpoint, p256dh, auth, active")
           .eq("active", true),
       ]);
 
@@ -288,15 +293,28 @@ export class RemindersService {
 
     const dueToday = (commitments ?? []).filter((item) =>
       this.isCommitmentDueToday(item as CommitmentItem, today),
-    ) as CommitmentItem[];
+    )
+      .filter((item) => item.user_id) as CommitmentItem[];
 
-    if (dueToday.length === 0 || (subscriptions ?? []).length === 0) {
+    const subscriptionsByUser = new Map<string, StoredPushSubscription[]>();
+
+    for (const subscription of (subscriptions ?? []) as StoredPushSubscription[]) {
+      if (!subscription.user_id) {
+        continue;
+      }
+
+      const current = subscriptionsByUser.get(subscription.user_id) ?? [];
+      current.push(subscription);
+      subscriptionsByUser.set(subscription.user_id, current);
+    }
+
+    if (dueToday.length === 0 || subscriptionsByUser.size === 0) {
       return {
         sent: 0,
         failed: 0,
         provider: "supabase" as const,
         dueToday: dueToday.length,
-        subscriptions: subscriptions?.length ?? 0,
+        subscriptions: (subscriptions ?? []).length,
       };
     }
 
@@ -304,16 +322,28 @@ export class RemindersService {
     let failed = 0;
 
     for (const commitment of dueToday) {
-      const scheduledFor = this.toSaoPauloMiddayIso(today.year, today.month, today.day);
-      const payload = this.buildCommitmentPayload(commitment);
-      const reminderId = await this.ensureReminder(admin, commitment.id, scheduledFor, payload);
+      const userSubscriptions = subscriptionsByUser.get(commitment.user_id ?? "");
 
-      if (!reminderId) {
-        failed += subscriptions.length;
+      if (!userSubscriptions?.length) {
         continue;
       }
 
-      for (const subscription of subscriptions as StoredPushSubscription[]) {
+      const scheduledFor = this.toSaoPauloMiddayIso(today.year, today.month, today.day);
+      const payload = this.buildCommitmentPayload(commitment);
+      const reminderId = await this.ensureReminder(
+        admin,
+        commitment.id,
+        commitment.user_id ?? null,
+        scheduledFor,
+        payload,
+      );
+
+      if (!reminderId) {
+        failed += userSubscriptions.length;
+        continue;
+      }
+
+      for (const subscription of userSubscriptions) {
         try {
           await webpush.sendNotification(
             {
@@ -371,12 +401,14 @@ export class RemindersService {
   private async ensureReminder(
     admin: NonNullable<SupabaseService["admin"]>,
     commitmentId: string,
+    userId: string | null,
     scheduledFor: string,
     payload: Record<string, unknown>,
   ) {
     const { data: existing } = await admin
       .from("reminders")
       .select("id, status")
+      .eq("user_id", userId)
       .eq("related_entity_type", "commitment")
       .eq("related_entity_id", commitmentId)
       .eq("scheduled_for", scheduledFor)
@@ -389,7 +421,7 @@ export class RemindersService {
     const { data, error } = await admin
       .from("reminders")
       .insert({
-        user_id: null,
+        user_id: userId,
         related_entity_type: "commitment",
         related_entity_id: commitmentId,
         channel: "push",

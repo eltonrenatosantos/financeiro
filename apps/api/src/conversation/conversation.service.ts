@@ -73,10 +73,13 @@ export class ConversationService {
     private readonly supabaseService: SupabaseService,
   ) {}
 
-  async createTurn(dto: CreateConversationTurnDto): Promise<ConversationTurnResponse> {
+  async createTurn(
+    dto: CreateConversationTurnDto,
+    userId: string,
+  ): Promise<ConversationTurnResponse> {
     const parsed = this.parserService.parse({ text: dto.text });
-    const destructivePersistence = await this.handleDestructiveCommand(dto.text);
-    const persistence = destructivePersistence ?? (await this.persistTurn(dto, parsed));
+    const destructivePersistence = await this.handleDestructiveCommand(dto.text, userId);
+    const persistence = destructivePersistence ?? (await this.persistTurn(dto, parsed, userId));
 
     return {
       message: "Entrada conversacional processada no modo placeholder.",
@@ -379,7 +382,10 @@ export class ConversationService {
     return null;
   }
 
-  private async createSystemConversation(channel: "text" | "voice" = "text") {
+  private async createSystemConversation(
+    userId: string,
+    channel: "text" | "voice" = "text",
+  ) {
     const admin = this.supabaseService.admin;
 
     if (!admin) {
@@ -389,7 +395,7 @@ export class ConversationService {
     const { data, error } = await admin
       .from("conversations")
       .insert({
-        user_id: null,
+        user_id: userId,
         channel,
       })
       .select("id")
@@ -401,7 +407,7 @@ export class ConversationService {
     };
   }
 
-  private async getCommitmentProtectionMode() {
+  private async getCommitmentProtectionMode(userId: string) {
     const admin = this.supabaseService.admin;
 
     if (!admin) {
@@ -410,7 +416,8 @@ export class ConversationService {
 
     const { data } = await admin
       .from("conversation_states")
-      .select("draft_payload, updated_at")
+      .select("draft_payload, updated_at, conversations!inner(user_id)")
+      .eq("conversations.user_id", userId)
       .order("updated_at", { ascending: false })
       .limit(50);
 
@@ -434,6 +441,7 @@ export class ConversationService {
 
   private async saveCommitmentProtectionMode(
     mode: "locked" | "edit_once",
+    userId: string,
     channel: "text" | "voice" = "text",
   ) {
     const admin = this.supabaseService.admin;
@@ -448,7 +456,10 @@ export class ConversationService {
       };
     }
 
-    const { conversationId, error: conversationError } = await this.createSystemConversation(channel);
+    const { conversationId, error: conversationError } = await this.createSystemConversation(
+      userId,
+      channel,
+    );
 
     if (!conversationId || conversationError) {
       return {
@@ -493,14 +504,14 @@ export class ConversationService {
     };
   }
 
-  private async relockCommitmentsAfterEdit() {
-    const protectionMode = await this.getCommitmentProtectionMode();
+  private async relockCommitmentsAfterEdit(userId: string) {
+    const protectionMode = await this.getCommitmentProtectionMode(userId);
 
     if (protectionMode !== "edit_once") {
       return;
     }
 
-    await this.saveCommitmentProtectionMode("locked");
+    await this.saveCommitmentProtectionMode("locked", userId);
   }
 
   private protectedCommitmentsResponse(conversationId: string | null) {
@@ -534,7 +545,7 @@ export class ConversationService {
     }, 0);
   }
 
-  private async deleteLatestMatchingRecord(input: string) {
+  private async deleteLatestMatchingRecord(input: string, userId: string) {
     const admin = this.supabaseService.admin;
 
     if (!admin) {
@@ -548,7 +559,7 @@ export class ConversationService {
     const fixedOnly = removalScope === "commitment";
     const transactionOnly =
       removalScope === "transaction" || removalScope === "variable";
-    const commitmentProtectionMode = await this.getCommitmentProtectionMode();
+    const commitmentProtectionMode = await this.getCommitmentProtectionMode(userId);
     const commitmentsProtected = commitmentProtectionMode === "locked";
     const latestOnly =
       normalized.includes("ultimo registro") ||
@@ -563,6 +574,7 @@ export class ConversationService {
       let query = admin
         .from("commitments")
         .select("id, title, created_at")
+        .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(1);
 
@@ -570,6 +582,7 @@ export class ConversationService {
         query = admin
           .from("commitments")
           .select("id, title, created_at")
+          .eq("user_id", userId)
           .eq("amount", amount)
           .order("created_at", { ascending: false })
           .limit(1);
@@ -580,6 +593,7 @@ export class ConversationService {
           ? await admin
               .from("commitments")
               .select("id, title, created_at")
+              .eq("user_id", userId)
               .order("created_at", { ascending: false })
               .limit(30)
           : await query.single();
@@ -605,7 +619,11 @@ export class ConversationService {
         };
       }
 
-      const { error } = await admin.from("commitments").delete().eq("id", selectedCommitment.id);
+      const { error } = await admin
+        .from("commitments")
+        .delete()
+        .eq("user_id", userId)
+        .eq("id", selectedCommitment.id);
 
       if (error) {
         return {
@@ -618,7 +636,7 @@ export class ConversationService {
         };
       }
 
-      await this.relockCommitmentsAfterEdit();
+      await this.relockCommitmentsAfterEdit(userId);
 
       return {
         saved: true,
@@ -636,18 +654,21 @@ export class ConversationService {
           ? await admin
               .from("transactions")
               .select("id, description, category, direction, created_at")
+              .eq("user_id", userId)
               .order("created_at", { ascending: false })
               .limit(50)
           : amount !== null && !latestOnly
             ? await admin
                 .from("transactions")
                 .select("id, description, category, direction, created_at")
+                .eq("user_id", userId)
                 .eq("amount", amount)
                 .order("created_at", { ascending: false })
                 .limit(30)
             : await admin
                 .from("transactions")
                 .select("id, description, category, direction, created_at")
+                .eq("user_id", userId)
                 .order("created_at", { ascending: false })
                 .limit(30);
 
@@ -698,6 +719,7 @@ export class ConversationService {
       const { error } = await admin
         .from("transactions")
         .delete()
+        .eq("user_id", userId)
         .eq("id", selectedTransaction.id);
 
       if (error) {
@@ -732,6 +754,7 @@ export class ConversationService {
         ? admin
             .from("transactions")
             .select("id, created_at")
+            .eq("user_id", userId)
             .eq("amount", amount)
             .order("created_at", { ascending: false })
             .limit(1)
@@ -739,6 +762,7 @@ export class ConversationService {
         : admin
             .from("transactions")
             .select("id, created_at")
+            .eq("user_id", userId)
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle(),
@@ -746,6 +770,7 @@ export class ConversationService {
         ? admin
             .from("commitments")
             .select("id, created_at")
+            .eq("user_id", userId)
             .eq("amount", amount)
             .order("created_at", { ascending: false })
             .limit(1)
@@ -753,6 +778,7 @@ export class ConversationService {
         : admin
             .from("commitments")
             .select("id, created_at")
+            .eq("user_id", userId)
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle(),
@@ -792,7 +818,7 @@ export class ConversationService {
       };
     }
 
-    const { error } = await admin.from(table).delete().eq("id", recordId);
+    const { error } = await admin.from(table).delete().eq("user_id", userId).eq("id", recordId);
 
     if (error) {
       return {
@@ -823,7 +849,7 @@ export class ConversationService {
     }).format(new Date(2026, month - 1, 1));
   }
 
-  private async handleDestructiveCommand(input: string) {
+  private async handleDestructiveCommand(input: string, userId: string) {
     const admin = this.supabaseService.admin;
 
     if (!admin) {
@@ -831,15 +857,19 @@ export class ConversationService {
     }
 
     if (this.isLockCommitmentsCommand(input)) {
-      return this.saveCommitmentProtectionMode("locked");
+      return this.saveCommitmentProtectionMode("locked", userId);
     }
 
     if (this.isUnlockCommitmentsCommand(input)) {
-      return this.saveCommitmentProtectionMode("edit_once");
+      return this.saveCommitmentProtectionMode("edit_once", userId);
     }
 
     if (this.isDeleteAllTransactionsCommand(input)) {
-      const { error } = await admin.from("transactions").delete().not("id", "is", null);
+      const { error } = await admin
+        .from("transactions")
+        .delete()
+        .eq("user_id", userId)
+        .not("id", "is", null);
 
       if (error) {
         this.logger.error(`Falha ao apagar todo o extrato: ${error.message}`);
@@ -864,13 +894,17 @@ export class ConversationService {
     }
 
     if (this.isDeleteAllCommitmentsCommand(input)) {
-      const commitmentProtectionMode = await this.getCommitmentProtectionMode();
+      const commitmentProtectionMode = await this.getCommitmentProtectionMode(userId);
 
       if (commitmentProtectionMode === "locked") {
         return this.protectedCommitmentsResponse(null);
       }
 
-      const { error } = await admin.from("commitments").delete().not("id", "is", null);
+      const { error } = await admin
+        .from("commitments")
+        .delete()
+        .eq("user_id", userId)
+        .not("id", "is", null);
 
       if (error) {
         this.logger.error(`Falha ao apagar gastos fixos: ${error.message}`);
@@ -884,7 +918,7 @@ export class ConversationService {
         };
       }
 
-      await this.relockCommitmentsAfterEdit();
+      await this.relockCommitmentsAfterEdit(userId);
 
       return {
         saved: true,
@@ -897,7 +931,7 @@ export class ConversationService {
     }
 
     if (this.isRemoveRecordCommand(input)) {
-      return this.deleteLatestMatchingRecord(input);
+      return this.deleteLatestMatchingRecord(input, userId);
     }
 
     const monthTarget = this.extractMonthDeletionTarget(input);
@@ -913,6 +947,7 @@ export class ConversationService {
     const { error: transactionsError } = await admin
       .from("transactions")
       .delete()
+      .eq("user_id", userId)
       .gte("created_at", monthStart)
       .lt("created_at", nextMonth);
 
@@ -931,6 +966,7 @@ export class ConversationService {
     const { error: conversationsError } = await admin
       .from("conversations")
       .delete()
+      .eq("user_id", userId)
       .gte("created_at", monthStart)
       .lt("created_at", nextMonth);
 
@@ -1129,6 +1165,7 @@ export class ConversationService {
   private async persistTurn(
     dto: CreateConversationTurnDto,
     parsed: ReturnType<ParserService["parse"]>,
+    userId: string,
   ): Promise<ConversationPersistenceResult> {
     const admin = this.supabaseService.admin;
 
@@ -1145,7 +1182,7 @@ export class ConversationService {
     const { data: conversation, error: conversationError } = await admin
       .from("conversations")
       .insert({
-        user_id: null,
+        user_id: userId,
         channel: dto.audioAssetPath ? "voice" : "text",
       })
       .select("id")
@@ -1173,13 +1210,14 @@ export class ConversationService {
       this.logger.error(`Falha ao salvar estado da conversa: ${stateError.message}`);
     }
 
-    const commitmentProtectionMode = await this.getCommitmentProtectionMode();
+    const commitmentProtectionMode = await this.getCommitmentProtectionMode(userId);
     const commitmentsProtected = commitmentProtectionMode === "locked";
 
     if (parsed.intent === "correction" && parsed.amount !== null) {
       const { data: latestTransaction, error: latestTransactionError } = await admin
         .from("transactions")
         .select("id, description")
+        .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
@@ -1203,6 +1241,7 @@ export class ConversationService {
           amount: parsed.amount,
           description: parsed.description ?? latestTransaction.description,
         })
+        .eq("user_id", userId)
         .eq("id", latestTransaction.id);
 
       if (correctionError) {
@@ -1229,7 +1268,7 @@ export class ConversationService {
       const { data: transaction, error: transactionError } = await admin
         .from("transactions")
         .insert({
-          user_id: null,
+          user_id: userId,
           conversation_id: conversation.id,
           direction: parsed.direction,
           description: parsed.description,
@@ -1277,6 +1316,7 @@ export class ConversationService {
         const { data: existingCommitments } = await admin
           .from("commitments")
           .select("id, title")
+          .eq("user_id", userId)
           .order("created_at", { ascending: false })
           .limit(30);
 
@@ -1302,6 +1342,7 @@ export class ConversationService {
             .update({
               day_of_month: parsed.dueDay,
             })
+            .eq("user_id", userId)
             .eq("id", matchedCommitment.id);
 
           if (updateDueDayError) {
@@ -1314,7 +1355,7 @@ export class ConversationService {
             };
           }
 
-          await this.relockCommitmentsAfterEdit();
+          await this.relockCommitmentsAfterEdit(userId);
 
           return {
             saved: true,
@@ -1344,6 +1385,7 @@ export class ConversationService {
         const { data: existingCommitments } = await admin
           .from("commitments")
           .select("id, title, amount")
+          .eq("user_id", userId)
           .order("created_at", { ascending: false })
           .limit(30);
 
@@ -1368,7 +1410,7 @@ export class ConversationService {
           const { data: transaction, error: transactionError } = await admin
             .from("transactions")
             .insert({
-              user_id: null,
+              user_id: userId,
               conversation_id: conversation.id,
               direction: "expense",
               description: matchedCommitment.title,
@@ -1428,6 +1470,7 @@ export class ConversationService {
       const { data: existingCommitments, error: existingCommitmentsError } = await admin
         .from("commitments")
         .select("id, title, starts_on, ends_on")
+        .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(30);
 
@@ -1492,6 +1535,7 @@ export class ConversationService {
               starts_on: range.startsOn,
               ends_on: range.endsOn,
             })
+            .eq("user_id", userId)
             .eq("id", primaryCommitment.id);
 
           if (consolidateUpdateError) {
@@ -1511,6 +1555,7 @@ export class ConversationService {
             const { error: deleteDuplicatesError } = await admin
               .from("commitments")
               .delete()
+              .eq("user_id", userId)
               .in("id", duplicateIds);
 
             if (deleteDuplicatesError) {
@@ -1520,7 +1565,7 @@ export class ConversationService {
             }
           }
 
-          await this.relockCommitmentsAfterEdit();
+          await this.relockCommitmentsAfterEdit(userId);
 
           return {
             saved: true,
@@ -1554,6 +1599,7 @@ export class ConversationService {
             starts_on: range.startsOn,
             ends_on: range.endsOn,
           })
+          .eq("user_id", userId)
           .eq("id", exactExistingCommitment.id);
 
         if (updateCommitmentError) {
@@ -1567,7 +1613,7 @@ export class ConversationService {
           };
         }
 
-        await this.relockCommitmentsAfterEdit();
+        await this.relockCommitmentsAfterEdit(userId);
 
         return {
           saved: true,
@@ -1581,7 +1627,7 @@ export class ConversationService {
       const { data: commitment, error: commitmentError } = await admin
         .from("commitments")
         .insert({
-          user_id: null,
+          user_id: userId,
           title: parsed.description,
           amount: parsed.amount,
           direction: parsed.direction,
@@ -1604,7 +1650,7 @@ export class ConversationService {
         };
       }
 
-      await this.relockCommitmentsAfterEdit();
+      await this.relockCommitmentsAfterEdit(userId);
 
       return {
         saved: true,

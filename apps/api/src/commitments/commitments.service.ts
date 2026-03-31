@@ -26,7 +26,7 @@ export class CommitmentsService {
     return fixedIncomeTerms.some((term) => normalizedTitle.includes(term)) ? "income" : direction;
   }
 
-  async list() {
+  async list(userId: string) {
     const admin = this.supabaseService.admin;
 
     if (!admin) {
@@ -40,6 +40,7 @@ export class CommitmentsService {
     const { data, error } = await admin
       .from("commitments")
       .select("id, title, amount, direction, recurrence_rule, day_of_month, starts_on, ends_on, created_at")
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(60);
 

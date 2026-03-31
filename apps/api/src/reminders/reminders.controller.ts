@@ -2,29 +2,46 @@ import { Body, Controller, Delete, Get, Headers, Post } from "@nestjs/common";
 import { CreateReminderDto } from "./dto/create-reminder.dto";
 import { RegisterPushSubscriptionDto } from "./dto/register-push-subscription.dto";
 import { RemindersService } from "./reminders.service";
+import { AuthService } from "../auth/auth.service";
 
 @Controller("reminders")
 export class RemindersController {
-  constructor(private readonly remindersService: RemindersService) {}
+  constructor(
+    private readonly remindersService: RemindersService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Get()
-  list() {
-    return this.remindersService.list();
+  async list(@Headers("authorization") authorization?: string) {
+    const userId = await this.authService.requireUserId(authorization);
+    return this.remindersService.list(userId);
   }
 
   @Post()
-  create(@Body() dto: CreateReminderDto) {
-    return this.remindersService.create(dto);
+  async create(
+    @Body() dto: CreateReminderDto,
+    @Headers("authorization") authorization?: string,
+  ) {
+    const userId = await this.authService.requireUserId(authorization);
+    return this.remindersService.create(dto, userId);
   }
 
   @Post("subscriptions")
-  registerSubscription(@Body() dto: RegisterPushSubscriptionDto) {
-    return this.remindersService.registerSubscription(dto);
+  async registerSubscription(
+    @Body() dto: RegisterPushSubscriptionDto,
+    @Headers("authorization") authorization?: string,
+  ) {
+    const userId = await this.authService.requireUserId(authorization);
+    return this.remindersService.registerSubscription(dto, userId);
   }
 
   @Delete("subscriptions")
-  unregisterSubscription(@Body("endpoint") endpoint: string) {
-    return this.remindersService.unregisterSubscription(endpoint);
+  async unregisterSubscription(
+    @Body("endpoint") endpoint: string,
+    @Headers("authorization") authorization?: string,
+  ) {
+    const userId = await this.authService.requireUserId(authorization);
+    return this.remindersService.unregisterSubscription(endpoint, userId);
   }
 
   @Post("dispatch-due")

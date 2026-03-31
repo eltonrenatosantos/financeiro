@@ -1,14 +1,21 @@
-import { Body, Controller, Post } from "@nestjs/common";
+import { Body, Controller, Headers, Post } from "@nestjs/common";
 import { ConversationService } from "./conversation.service";
 import { CreateConversationTurnDto } from "./dto/create-conversation-turn.dto";
+import { AuthService } from "../auth/auth.service";
 
 @Controller("conversation")
 export class ConversationController {
-  constructor(private readonly conversationService: ConversationService) {}
+  constructor(
+    private readonly conversationService: ConversationService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Post("turns")
-  createTurn(@Body() dto: CreateConversationTurnDto) {
-    return this.conversationService.createTurn(dto);
+  async createTurn(
+    @Body() dto: CreateConversationTurnDto,
+    @Headers("authorization") authorization?: string,
+  ) {
+    const userId = await this.authService.requireUserId(authorization);
+    return this.conversationService.createTurn(dto, userId);
   }
 }
-

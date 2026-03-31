@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { notifyFinanceDataUpdated } from "./data-sync";
+import { authenticatedFetch } from "../lib/api";
 
 type Message = {
   id: string;
@@ -310,7 +311,7 @@ export function VoiceDemo() {
     setStatus("sending");
 
     try {
-      const response = await fetch(`${apiBaseUrl}/api/conversation/turns`, {
+      const response = await authenticatedFetch(`${apiBaseUrl}/api/conversation/turns`, {
         method: "POST",
         cache: "no-store",
         headers: {
@@ -352,7 +353,7 @@ export function VoiceDemo() {
 
   async function fetchLatestTransactions() {
     try {
-      const response = await fetch(`${apiBaseUrl}/api/transactions`, {
+      const response = await authenticatedFetch(`${apiBaseUrl}/api/transactions`, {
         cache: "no-store",
       });
 
@@ -391,7 +392,7 @@ export function VoiceDemo() {
         return;
       }
 
-      const response = await fetch(`${apiBaseUrl}/api/reminders/subscriptions`, {
+      const response = await authenticatedFetch(`${apiBaseUrl}/api/reminders/subscriptions`, {
         method: "POST",
         cache: "no-store",
         headers: {
@@ -451,7 +452,7 @@ export function VoiceDemo() {
         });
       }
 
-      const response = await fetch(`${apiBaseUrl}/api/reminders/subscriptions`, {
+      const response = await authenticatedFetch(`${apiBaseUrl}/api/reminders/subscriptions`, {
         method: "POST",
         cache: "no-store",
         headers: {
@@ -546,7 +547,73 @@ export function VoiceDemo() {
 
   return (
     <section className="demo-shell">
-      <section className="voice-stage voice-stage--hero">
+      {shouldShowConversation ? (
+        <section className="conversation-panel conversation-panel--minimal">
+          <div className="message-list">
+            {messages.map((message) => (
+              <article
+                key={message.id}
+                className={`message-bubble message-bubble--${message.speaker}`}
+              >
+                <p>{capitalizeFirst(message.content)}</p>
+              </article>
+            ))}
+          </div>
+
+          {errorMessage ? (
+            <article className="error-card">
+              <strong>Não foi possível concluir.</strong>
+              <p className="error-text">{errorMessage}</p>
+            </article>
+          ) : null}
+        </section>
+      ) : null}
+
+      {!speechSupported ? (
+        <div className="phrase-grid phrase-grid--minimal">
+          {examplePhrases.map((phrase) => (
+            <button
+              key={phrase}
+              type="button"
+              className={`mini-card mini-card--button${
+                currentPhrase === phrase ? " mini-card--active" : ""
+              }`}
+              onClick={() => void runConversation(phrase)}
+            >
+              <span className="mini-label">Exemplo</span>
+              <p>&quot;{phrase}&quot;</p>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <section className="voice-stage voice-stage--hero voice-stage--bottom">
+        {shouldShowNotificationsSetup ? (
+          <div className="alerts-setup">
+            <button
+              type="button"
+              className="alerts-setup__button"
+              onClick={enablePushNotifications}
+              disabled={notificationsBusy}
+            >
+              {notificationsBusy ? "Ativando alertas..." : "Ativar alertas"}
+            </button>
+            <p className="alerts-setup__hint">
+              Receba aviso quando um gasto fixo vencer no dia.
+            </p>
+            {notificationsMessage ? (
+              <p className="alerts-setup__hint alerts-setup__hint--error">
+                {notificationsMessage}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="status-row">
+          {status !== "idle" ? <p className="status-pill">{statusLabel}</p> : null}
+          {liveTranscript ? (
+            <p className="transcript-pill">“{liveTranscript}”</p>
+          ) : null}
+        </div>
         <div className="voice-center">
           <span className="voice-particle voice-particle--one" aria-hidden="true" />
           <span className="voice-particle voice-particle--two" aria-hidden="true" />
@@ -590,73 +657,7 @@ export function VoiceDemo() {
             <span className="voice-orb" aria-hidden="true" />
           </button>
         </div>
-        <div className="status-row">
-          {status !== "idle" ? <p className="status-pill">{statusLabel}</p> : null}
-          {liveTranscript ? (
-            <p className="transcript-pill">“{liveTranscript}”</p>
-          ) : null}
-        </div>
-        {shouldShowNotificationsSetup ? (
-          <div className="alerts-setup">
-            <button
-              type="button"
-              className="alerts-setup__button"
-              onClick={enablePushNotifications}
-              disabled={notificationsBusy}
-            >
-              {notificationsBusy ? "Ativando alertas..." : "Ativar alertas"}
-            </button>
-            <p className="alerts-setup__hint">
-              Receba aviso quando um gasto fixo vencer no dia.
-            </p>
-            {notificationsMessage ? (
-              <p className="alerts-setup__hint alerts-setup__hint--error">
-                {notificationsMessage}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
       </section>
-
-      {!speechSupported ? (
-        <div className="phrase-grid phrase-grid--minimal">
-          {examplePhrases.map((phrase) => (
-            <button
-              key={phrase}
-              type="button"
-              className={`mini-card mini-card--button${
-                currentPhrase === phrase ? " mini-card--active" : ""
-              }`}
-              onClick={() => void runConversation(phrase)}
-            >
-              <span className="mini-label">Exemplo</span>
-              <p>&quot;{phrase}&quot;</p>
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      {shouldShowConversation ? (
-        <section className="conversation-panel conversation-panel--minimal">
-          <div className="message-list">
-            {messages.map((message) => (
-              <article
-                key={message.id}
-                className={`message-bubble message-bubble--${message.speaker}`}
-              >
-                <p>{capitalizeFirst(message.content)}</p>
-              </article>
-            ))}
-          </div>
-
-          {errorMessage ? (
-            <article className="error-card">
-              <strong>Não foi possível concluir.</strong>
-              <p className="error-text">{errorMessage}</p>
-            </article>
-          ) : null}
-        </section>
-      ) : null}
     </section>
   );
 }
